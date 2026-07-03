@@ -34,6 +34,9 @@ use crate::fs::EDITOR_SIZE_CAP;
 const BRANCH_TIMEOUT: Duration = Duration::from_secs(2);
 /// status / show can touch the whole tree on a big repo; give them headroom.
 const DIFF_TIMEOUT: Duration = Duration::from_secs(10);
+/// `worktree add` checks out a full working tree into a new directory — on a
+/// large repo that's real disk work, so it gets the most generous deadline.
+const WORKTREE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// CREATE_NO_WINDOW — suppress the console window Windows would otherwise flash
 /// for every `git` spawn. See the module header; this is non-negotiable.
@@ -50,11 +53,22 @@ fn looks_binary(bytes: &[u8]) -> bool {
     head.contains(&0)
 }
 
-/// Spawn `git <args>` in `dir`, capturing stdout, with a hard timeout and the
-/// Windows console-suppression flag. Returns None on spawn failure or timeout.
-/// stderr is discarded — callers treat any failure as "no data" (not a repo,
-/// path missing, detached HEAD, object absent, …), never a user-facing error.
-fn run_git(dir: &str, args: &[&str], timeout: Duration) -> Option<Output> {
+/// Core spawn for `git <args>` in `dir`, always capturing stdout, with a hard
+/// timeout and the Windows console-suppression flag. Returns None on spawn
+/// failure or timeout.
+///
+/// `capture_stderr` decides whether git's stderr is piped into the returned
+/// Output or discarded. The read-only pollers null it (any failure is just "no
+/// data" — not a repo, path missing, detached HEAD, …), but the MUTATING
+/// commands (worktree add) need git's stderr verbatim so the UI can show its
+/// precise message ("branch already exists", "invalid reference", …). This
+/// opt-in keeps the existing null-stderr behaviour for every current caller.
+fn run_git_inner(
+    dir: &str,
+    args: &[&str],
+    timeout: Duration,
+    capture_stderr: bool,
+) -> Option<Output> {
     let dir = dir.to_string();
     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let (tx, rx) = mpsc::channel();
@@ -63,13 +77,23 @@ fn run_git(dir: &str, args: &[&str], timeout: Duration) -> Option<Output> {
         cmd.args(&args)
             .current_dir(&dir)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(if capture_stderr {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            });
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         // Receiver may already be gone (we timed out) — ignore the send error.
         let _ = tx.send(cmd.output());
     });
     rx.recv_timeout(timeout).ok()?.ok()
+}
+
+/// Read-only spawn: stderr discarded (see `run_git_inner`). Every observation
+/// command in this module goes through here.
+fn run_git(dir: &str, args: &[&str], timeout: Duration) -> Option<Output> {
+    run_git_inner(dir, args, timeout, false)
 }
 
 /// `git rev-parse --abbrev-ref HEAD` — current branch name, or None (not a repo,
@@ -108,6 +132,239 @@ pub fn git_repo_root(path: String) -> Option<String> {
         return None;
     }
     Some(root)
+}
+
+// ---------------------------------------------------------------------------
+// Attempt worktrees (Plan 013 Phase A). These are the fork-a-repo-into-an-
+// isolated-worktree primitives: list bases → add a worktree on a new branch →
+// list worktrees to reconcile against reality at boot. `git_worktree_add` is
+// the only MUTATING command in this module; it surfaces git's stderr verbatim.
+// ---------------------------------------------------------------------------
+
+/// One branch offered as a fork base in the New Attempt popover.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchInfo {
+    /// Short name: `main` for a local, `origin/main` for a remote.
+    pub name: String,
+    /// True for the currently checked-out branch (git's `*` HEAD marker).
+    pub is_current: bool,
+    /// True for a `refs/remotes/*` ref (rendered under the locals in the picker).
+    pub is_remote: bool,
+}
+
+/// Parse `for-each-ref refs/heads refs/remotes --format=%(refname)%09%(HEAD)`.
+///
+/// Locals come first (for-each-ref sorts `refs/heads` before `refs/remotes`).
+/// `<remote>/HEAD` — the symbolic default-branch pointer, not a real branch —
+/// is dropped, and a remote branch whose bare name matches a local is dropped
+/// as a twin (offering both `main` and `origin/main` is just noise).
+fn parse_branches(text: &str) -> Vec<BranchInfo> {
+    let mut locals: Vec<BranchInfo> = Vec::new();
+    let mut remotes: Vec<String> = Vec::new();
+    let mut local_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for raw in text.lines() {
+        let line = raw.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        // `<refname>\t<marker>`; the marker is `*` for the current branch, a
+        // space otherwise (already trimmed off the end above for non-current).
+        let (refname, marker) = line.split_once('\t').unwrap_or((line, ""));
+        let is_current = marker.trim() == "*";
+        if let Some(name) = refname.strip_prefix("refs/heads/") {
+            local_names.insert(name.to_string());
+            locals.push(BranchInfo {
+                name: name.to_string(),
+                is_current,
+                is_remote: false,
+            });
+        } else if let Some(name) = refname.strip_prefix("refs/remotes/") {
+            if name.ends_with("/HEAD") {
+                continue; // origin/HEAD — a pointer, not a branch
+            }
+            remotes.push(name.to_string());
+        }
+    }
+    let mut out = locals;
+    for name in remotes {
+        // Strip the remote prefix (first path segment) to get the bare branch.
+        let bare = name
+            .split_once('/')
+            .map(|(_, b)| b)
+            .unwrap_or(name.as_str());
+        if local_names.contains(bare) {
+            continue; // twin of a local branch
+        }
+        out.push(BranchInfo {
+            name,
+            is_current: false,
+            is_remote: true,
+        });
+    }
+    out
+}
+
+/// List local + remote branches to offer as fork bases. Empty on any failure
+/// (not a repo, git missing, timeout) — the popover shows an inline error state.
+#[tauri::command]
+pub fn git_list_branches(repo: String) -> Vec<BranchInfo> {
+    let Some(output) = run_git(
+        &repo,
+        &[
+            "for-each-ref",
+            "refs/heads",
+            "refs/remotes",
+            "--format=%(refname)%09%(HEAD)",
+        ],
+        DIFF_TIMEOUT,
+    ) else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    parse_branches(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// True if `refs/heads/<name>` resolves — a cheap local-branch existence probe.
+fn local_branch_exists(repo: &str, name: &str) -> bool {
+    run_git(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{name}"),
+        ],
+        BRANCH_TIMEOUT,
+    )
+    .map(|o| o.status.success())
+    .unwrap_or(false)
+}
+
+/// The repo's default branch, used to preselect the base dropdown. Prefers the
+/// remote's advertised default (`origin/HEAD` → strip `origin/`); falls back to
+/// a local `main`, then `master`, then whatever HEAD currently points at.
+#[tauri::command]
+pub fn git_default_branch(repo: String) -> Option<String> {
+    if let Some(output) = run_git(
+        &repo,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        BRANCH_TIMEOUT,
+    ) {
+        if output.status.success() {
+            let full = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // `origin/main` → `main`. Strip only the first segment so a branch
+            // name that itself contains slashes (origin/feature/x) survives.
+            if let Some((_, branch)) = full.split_once('/') {
+                if !branch.is_empty() {
+                    return Some(branch.to_string());
+                }
+            }
+        }
+    }
+    for cand in ["main", "master"] {
+        if local_branch_exists(&repo, cand) {
+            return Some(cand.to_string());
+        }
+    }
+    git_current_branch(repo)
+}
+
+/// Create a worktree at `path` on a new branch `branch` forked from `base`:
+/// `git worktree add <path> -b <branch> <base>`. This is the one mutating git
+/// call in Lume's whole surface.
+///
+/// It FAILS LOUD: git's own stderr (branch already exists, path exists, invalid
+/// reference) is returned verbatim in the error so the popover can show it
+/// unedited — git's messages are precise and we must not paraphrase them.
+#[tauri::command]
+pub fn git_worktree_add(repo: String, path: String, branch: String, base: String) -> AppResult<()> {
+    let output = run_git_inner(
+        &repo,
+        &["worktree", "add", &path, "-b", &branch, &base],
+        WORKTREE_TIMEOUT,
+        true,
+    )
+    .ok_or_else(|| {
+        AppError::internal(format!(
+            "git worktree add failed to run or timed out in {repo}"
+        ))
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // Surface git's message verbatim. Prefer stderr (where git writes its
+    // fatals); fall back to stdout, then a generic note if both are silent.
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let msg = if !stderr.is_empty() {
+        stderr
+    } else {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if stdout.is_empty() {
+            "git worktree add failed".to_string()
+        } else {
+            stdout
+        }
+    };
+    Err(AppError::internal(msg))
+}
+
+/// One worktree attached to a repo (the main checkout plus every attempt).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeEntry {
+    /// Absolute path git reports for the worktree.
+    pub path: String,
+    /// Short branch name (`refs/heads/` stripped); None for a detached worktree.
+    pub branch: Option<String>,
+}
+
+/// Parse `worktree list --porcelain` into (path, branch) records. The format is
+/// blank-line-separated blocks; each starts with `worktree <path>` and may carry
+/// `branch refs/heads/<name>` (absent when detached). `HEAD`, `detached`,
+/// `bare`, `locked`, … lines are ignored.
+fn parse_worktree_porcelain(text: &str) -> Vec<WorktreeEntry> {
+    let mut out = Vec::new();
+    let mut cur_path: Option<String> = None;
+    let mut cur_branch: Option<String> = None;
+    let mut flush = |path: &mut Option<String>, branch: &mut Option<String>| {
+        if let Some(p) = path.take() {
+            out.push(WorktreeEntry {
+                path: p,
+                branch: branch.take(),
+            });
+        }
+        *branch = None;
+    };
+    for line in text.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            // A new block begins — flush the previous one first (blocks are
+            // usually blank-separated, but don't rely on it).
+            flush(&mut cur_path, &mut cur_branch);
+            cur_path = Some(p.to_string());
+        } else if let Some(b) = line.strip_prefix("branch ") {
+            cur_branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+        } else if line.is_empty() {
+            flush(&mut cur_path, &mut cur_branch);
+        }
+    }
+    flush(&mut cur_path, &mut cur_branch);
+    out
+}
+
+/// List every worktree attached to `repo` (main checkout + attempts). Used at
+/// boot to reconcile attemptStore against reality. Empty on any failure.
+#[tauri::command]
+pub fn git_worktree_list(repo: String) -> Vec<WorktreeEntry> {
+    let Some(output) = run_git(&repo, &["worktree", "list", "--porcelain"], DIFF_TIMEOUT) else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    parse_worktree_porcelain(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// One changed file in the working tree, relative to HEAD. `status` is a
@@ -517,5 +774,177 @@ mod tests {
         .unwrap();
         assert!(d.binary);
         assert_eq!(d.new_text, "");
+    }
+
+    // ---- Plan 013 pure parsers (no git needed) ----
+
+    #[test]
+    fn parse_branches_splits_locals_and_marks_current() {
+        let text = "refs/heads/main\t*\nrefs/heads/feature\t \n";
+        let got = parse_branches(text);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "main");
+        assert!(got[0].is_current);
+        assert!(!got[0].is_remote);
+        assert_eq!(got[1].name, "feature");
+        assert!(!got[1].is_current);
+    }
+
+    #[test]
+    fn parse_branches_drops_origin_head_and_local_twins() {
+        // origin/HEAD is a pointer (dropped); origin/main twins the local main
+        // (dropped); origin/solo has no local twin (kept, marked remote). Locals
+        // are emitted before remotes regardless of input order.
+        let text = "\
+refs/heads/main\t*
+refs/remotes/origin/HEAD\t
+refs/remotes/origin/main\t
+refs/remotes/origin/solo\t
+";
+        let got = parse_branches(text);
+        let names: Vec<&str> = got.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, vec!["main", "origin/solo"]);
+        assert!(!got[0].is_remote && got[1].is_remote);
+    }
+
+    #[test]
+    fn parse_branches_empty_is_no_branches() {
+        assert!(parse_branches("").is_empty());
+        assert!(parse_branches("\n\n").is_empty());
+    }
+
+    #[test]
+    fn parse_worktree_porcelain_reads_path_and_branch() {
+        let text = "\
+worktree /repo/main
+HEAD deadbeef
+branch refs/heads/main
+
+worktree /repo/wt-x
+HEAD cafef00d
+branch refs/heads/lume/my-attempt
+
+worktree /repo/detached
+HEAD 0badc0de
+detached
+";
+        let got = parse_worktree_porcelain(text);
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].path, "/repo/main");
+        assert_eq!(got[0].branch.as_deref(), Some("main"));
+        assert_eq!(got[1].path, "/repo/wt-x");
+        assert_eq!(got[1].branch.as_deref(), Some("lume/my-attempt"));
+        assert_eq!(got[2].path, "/repo/detached");
+        assert_eq!(got[2].branch, None);
+    }
+
+    #[test]
+    fn parse_worktree_porcelain_handles_missing_trailing_blank() {
+        // git omits the trailing blank line on the final block — it must still
+        // flush rather than being dropped.
+        let text = "worktree /only\nHEAD abc\nbranch refs/heads/solo";
+        let got = parse_worktree_porcelain(text);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].branch.as_deref(), Some("solo"));
+    }
+
+    // ---- Plan 013 fixture-repo integration tests ----
+
+    #[test]
+    fn list_branches_reports_locals_and_current() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo(root);
+        std::fs::write(root.join("f.txt"), "x\n").unwrap();
+        git_in(root, &["add", "."]);
+        git_in(root, &["commit", "-q", "-m", "init"]);
+        git_in(root, &["branch", "feature"]);
+
+        let branches = git_list_branches(root.to_string_lossy().to_string());
+        let current = git_current_branch(root.to_string_lossy().to_string()).unwrap();
+        assert!(branches.iter().any(|b| b.name == "feature" && !b.is_remote));
+        assert!(branches.iter().any(|b| b.name == current && b.is_current));
+        // Exactly one branch is current.
+        assert_eq!(branches.iter().filter(|b| b.is_current).count(), 1);
+    }
+
+    #[test]
+    fn default_branch_falls_back_to_current_without_remote() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo(root);
+        git_in(root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        // No remote configured, so origin/HEAD lookup fails and it falls through
+        // to the local main/master (== the checked-out branch) fallback.
+        let def = git_default_branch(root.to_string_lossy().to_string());
+        let current = git_current_branch(root.to_string_lossy().to_string());
+        assert_eq!(def, current);
+        assert!(matches!(def.as_deref(), Some("main") | Some("master")));
+    }
+
+    #[test]
+    fn worktree_add_creates_branch_dir_and_lists() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo(root);
+        std::fs::write(root.join("seed.txt"), "seed\n").unwrap();
+        git_in(root, &["add", "."]);
+        git_in(root, &["commit", "-q", "-m", "init"]);
+
+        let wt = root.join("wt-attempt");
+        let res = git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            "lume/my-attempt".to_string(),
+            "HEAD".to_string(),
+        );
+        assert!(res.is_ok(), "worktree add should succeed: {res:?}");
+        assert!(wt.join("seed.txt").exists(), "worktree checked out files");
+
+        let list = git_worktree_list(root.to_string_lossy().to_string());
+        assert!(
+            list.iter()
+                .any(|e| e.branch.as_deref() == Some("lume/my-attempt")),
+            "new attempt branch should appear in worktree list: {list:?}"
+        );
+    }
+
+    #[test]
+    fn worktree_add_fails_loud_on_existing_branch() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo(root);
+        git_in(root, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        let current = git_current_branch(root.to_string_lossy().to_string()).unwrap();
+
+        // Forking a NEW branch whose name already exists (the current branch)
+        // must fail, and the error must carry git's own words.
+        let wt = root.join("wt-dupe");
+        let res = git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            current,
+            "HEAD".to_string(),
+        );
+        let err = res.expect_err("existing branch must fail loud");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            reason.to_lowercase().contains("exists"),
+            "git's message should surface verbatim, got: {reason}"
+        );
     }
 }
