@@ -3,6 +3,7 @@
 pub mod agent_events;
 pub mod claude_hooks;
 pub mod config;
+pub mod editor_watch;
 pub mod error;
 pub mod file_watcher;
 pub mod fs;
@@ -62,6 +63,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(pty::PtyRegistry::default())
         .manage(file_watcher::FileWatcherState::default())
+        .manage(editor_watch::EditorWatchState::default())
         .manage(config::ConfigWatcherState::default())
         .manage(agent_events::AgentEventsState::default())
         .setup(|app| {
@@ -92,9 +94,12 @@ pub fn run() {
             pty::is_pty_busy,
             crate::fs::list_dir,
             crate::fs::read_text_file,
+            crate::fs::read_editor_file,
             crate::fs::write_text_file,
             crate::fs::home_dir,
             crate::file_watcher::watch_workspace,
+            crate::editor_watch::watch_editor_file,
+            crate::editor_watch::unwatch_editor_file,
             crate::shell_detect::detect_shells,
             crate::config::read_config,
             crate::config::write_default_config_if_missing,
