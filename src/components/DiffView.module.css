@@ -1,0 +1,320 @@
+/* src/components/DiffView.module.css
+ *
+ * Diff tab surface (Plan 010 Phase B). Two-pane review: a changed-file list on
+ * the left, the old⇄new diff on the right. Chrome deliberately mirrors
+ * MdEditor.module.css — a 36px header band with a single border-bottom, the
+ * shared view-fade-in entrance, restrained dark surfaces.
+ *
+ * Every var() carries a literal fallback: an undefined custom property
+ * invalidates the WHOLE declaration (documented gotcha in SessionRow.module.css),
+ * which would silently drop a colour/spacing rule. Reduced-motion is handled
+ * globally in theme.css, so no per-rule media query is needed here. */
+
+.root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0, #0a0a0a);
+  animation: view-fade-in var(--dur-base, 200ms) var(--ease-out, ease);
+}
+
+/* Header band — matches MdEditor's 36px chrome strip. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  height: 36px;
+  padding: 0 8px 0 12px;
+  background: var(--bg-1, #111111);
+  border-bottom: 1px solid var(--border, #222222);
+  flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  color: var(--fg-1, #9a9a9a);
+}
+
+.title {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-0, #e6e6e6);
+  letter-spacing: 0.01em;
+}
+
+.repoName {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--fg-2, #6a6a6a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repoSelect {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-sm, 4px);
+  padding: 3px 6px;
+  max-width: 240px;
+  cursor: pointer;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-shrink: 0;
+}
+
+/* Unified/Split segmented control. */
+.segmented {
+  display: inline-flex;
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+}
+
+.segBtn {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  background: transparent;
+  border: none;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast, 120ms) var(--ease-out, ease),
+    background var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.segBtn:hover {
+  color: var(--fg-0, #e6e6e6);
+}
+.segActive {
+  color: var(--bg-0, #0a0a0a);
+  background: var(--accent, #5fa8ff);
+}
+.segActive:hover {
+  color: var(--bg-0, #0a0a0a);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  color: var(--fg-1, #9a9a9a);
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast, 120ms) var(--ease-out, ease),
+    background var(--dur-fast, 120ms) var(--ease-out, ease),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.iconBtn:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+  border-color: var(--accent-dim, #2f7adc);
+}
+
+/* Body: file list (left) + diff detail (right). */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+
+.list {
+  width: 300px;
+  min-width: 220px;
+  max-width: 42%;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-1, #111111);
+  border-right: 1px solid var(--border, #222222);
+}
+
+.listMsg {
+  padding: 16px 12px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-2, #6a6a6a);
+}
+
+/* File row: glyph · name · dim dir · hover "open in editor". */
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--fg-1, #9a9a9a);
+  transition: background var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.fileRow:hover {
+  background: var(--bg-2, #1a1a1a);
+}
+.fileActive,
+.fileActive:hover {
+  background: var(--bg-3, #222222);
+  color: var(--fg-0, #e6e6e6);
+}
+.fileRow:focus-visible {
+  outline: 2px solid var(--accent, #5fa8ff);
+  outline-offset: -2px;
+}
+
+/* Status glyph — a fixed-width mono letter, tinted per kind. */
+.glyph {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 700;
+}
+.glyphM {
+  color: var(--accent, #5fa8ff);
+}
+.glyphA,
+.glyphU {
+  color: var(--success, #7fc26b);
+}
+.glyphD {
+  color: var(--error, #e85a5a);
+}
+.glyphR {
+  color: var(--accent-dim, #2f7adc);
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 60%;
+}
+.fileDir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the meaningful tail of a long path visible */
+  text-align: left;
+  color: var(--fg-3, #4a4a4a);
+  font-size: 11px;
+}
+
+/* Open-in-editor affordance — hidden until row hover/focus to keep the list calm. */
+.openBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  color: var(--fg-2, #6a6a6a);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast, 120ms) var(--ease-out, ease),
+    color var(--dur-fast, 120ms) var(--ease-out, ease),
+    background var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.fileRow:hover .openBtn,
+.fileRow:focus-within .openBtn {
+  opacity: 1;
+}
+.openBtn:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-1, #111111);
+  border-color: var(--accent-dim, #2f7adc);
+}
+
+/* Detail: the CodeMirror diff or a centred message. */
+.detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0, #0a0a0a);
+}
+
+.cm {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.contentMsg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1, 4px);
+  padding: 24px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--fg-2, #6a6a6a);
+  text-align: center;
+}
+
+.msgTitle {
+  margin: 0;
+  color: var(--fg-1, #9a9a9a);
+  font-size: 14px;
+}
+.msgHint {
+  margin: 0;
+  color: var(--fg-2, #6a6a6a);
+  font-size: 12px;
+}
+
+/* Full-surface empty state (no repo at all). */
+.emptyFull {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2, 8px);
+  padding: 32px;
+  text-align: center;
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+.emptyTitle {
+  margin: 0;
+  color: var(--fg-0, #e6e6e6);
+  font-size: 15px;
+}
+.emptyHint {
+  margin: 0;
+  max-width: 380px;
+  color: var(--fg-2, #6a6a6a);
+  font-size: 13px;
+  line-height: 1.5;
+}

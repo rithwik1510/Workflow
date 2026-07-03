@@ -24,12 +24,14 @@ import {
   IconEdit,
   IconEye,
   IconGlobe,
+  IconDiff,
   IconSettings,
   IconMinimize,
   IconMaximize,
   IconClose,
 } from "@/components/icons";
 import { useMdStore } from "@/store/mdStore";
+import { useDiffStore } from "@/store/diffStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { useSessionsStore } from "@/store/sessionsStore";
 import { useSidebarStore } from "@/store/sidebarStore";
@@ -50,6 +52,16 @@ export function TopBar() {
   const qvPath = useMdStore((s) => s.quickViewer.path);
   const openMdInQuickViewer = useMdStore((s) => s.openMdInQuickViewer);
   const closeQuickViewer = useMdStore((s) => s.closeQuickViewer);
+
+  // Diff tab — a full-area, git-powered review surface (Plan 010 Phase B).
+  // Labeled (icon + text) like the Editor button so it reads as a destination,
+  // not just a glyph. openDiff derives the session's repos + lists changes.
+  const diffOpen = useDiffStore((s) => s.open);
+  const onToggleDiff = () => {
+    const d = useDiffStore.getState();
+    if (d.open) d.closeDiff();
+    else void d.openDiff();
+  };
 
   const previewOpen = usePreviewStore((s) => s.open);
   const onTogglePreview = () => {
@@ -181,6 +193,17 @@ export function TopBar() {
       />
 
       <div className={styles.right} data-tauri-drag-region="false">
+        <button
+          className={`${styles.btn} ${styles.labeled} ${diffOpen ? styles.active : ""}`}
+          title={diffOpen ? "Close diff (Ctrl+Shift+D)" : "Review changes — git diff (Ctrl+Shift+D)"}
+          aria-label="Toggle diff"
+          data-tauri-drag-region="false"
+          onClick={onToggleDiff}
+        >
+          <IconDiff size={16} />
+          <span className={styles.btnLabel}>Diff</span>
+        </button>
+        <span className={styles.divider} aria-hidden="true" />
         <button
           className={`${styles.btn} ${previewOpen ? styles.active : ""}`}
           title={previewOpen ? "Close Preview (Ctrl+Shift+L)" : "Open Preview (Ctrl+Shift+L)"}

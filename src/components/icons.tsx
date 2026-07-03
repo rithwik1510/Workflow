@@ -128,6 +128,30 @@ export function IconGlobe(props: IconProps) {
   );
 }
 
+/** Diff — git-compare: two branch nodes joined by a curved path (review view). */
+export function IconDiff(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M6 8.5v6a3 3 0 0 0 3 3h6" />
+      <path d="M18 15.5v-6a3 3 0 0 0-3-3H9" />
+    </Stroke>
+  );
+}
+
+/** Refresh — a circular arrow (re-list the diff). */
+export function IconRefresh(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" />
+      <path d="M3 21v-5h5" />
+    </Stroke>
+  );
+}
+
 /** Settings — a gear. */
 export function IconSettings(props: IconProps) {
   return (

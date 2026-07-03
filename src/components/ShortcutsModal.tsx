@@ -52,6 +52,7 @@ const CATALOG: ShortcutGroup[] = [
       { label: "Toggle Sidebar", keys: ["Ctrl", "B"] },
       { label: "Toggle Editor Full View", keys: ["Ctrl", "E"] },
       { label: "Toggle MD Quick Viewer", keys: ["Ctrl", "Shift", "M"] },
+      { label: "Toggle Diff tab", keys: ["Ctrl", "Shift", "D"] },
       { label: "Open file", keys: ["Ctrl", "O"] },
       { label: "Open Folder (workspace)", keys: ["Ctrl", "K", "Ctrl", "O"] },
       { label: "Show keyboard shortcuts", keys: ["Ctrl", "?"] },
