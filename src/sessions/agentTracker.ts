@@ -35,6 +35,7 @@ import {
 } from "@/sessions/attentionTracker";
 import { onCommandEvent } from "@/sessions/commandTracker";
 import { agentFromCommand } from "@/sessions/agentIdentity";
+import { usePaneResumeStore } from "@/store/paneResumeStore";
 import type { PaneId } from "@/types";
 
 export interface AgentEvent {
@@ -87,11 +88,23 @@ export function applyAgentEvent(evt: AgentEvent): void {
   if (t.type === "end") {
     store.removePaneAgent(evt.paneId);
     setAgentActive(evt.paneId, false); // revert this pane to the heuristic tiers
+    // Plan 009: a clean SessionEnd means the agent shouldn't re-offer a resume
+    // on next launch — keep the record but clear its alive flag.
+    usePaneResumeStore.getState().markEnded(evt.paneId);
     return;
   }
 
   // Canary: the first SessionStart confirms the hooks actually fire.
-  if (evt.event === "SessionStart") store.markSessionStart();
+  if (evt.event === "SessionStart") {
+    store.markSessionStart();
+    // Plan 009: remember this pane ran Claude, with its resume id + cwd, so a
+    // restart can offer [Resume]. cwd prefers the hook's own value, falling back
+    // to the owning session's folder.
+    const cwd = evt.cwd ?? findSessionForPane(useSessionsStore.getState(), evt.paneId)?.folderPath ?? null;
+    usePaneResumeStore
+      .getState()
+      .recordAgentStart(evt.paneId, { agentSessionId: evt.sessionId, cwd });
+  }
 
   // View-acknowledgment, mirroring bumpUnread's "never light up the visible
   // session": a turn that completes while you're watching it needs no dot —

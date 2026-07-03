@@ -41,6 +41,7 @@ import { useMdStore } from "@/store/mdStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { paneLaunchSpec, useSessionsStore } from "@/store/sessionsStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePaneResumeStore } from "@/store/paneResumeStore";
 import { useSidebarStore } from "@/store/sidebarStore";
 import { applyXtermFontFamilyToAll, applyXtermThemeToAll } from "@/terminals/registry";
 import { installPtyOrchestrator } from "@/terminals/orchestrator";
@@ -52,6 +53,19 @@ import { sequentialResume } from "@/lib/sessions/sequentialResume";
 import { coerceThemeName } from "@/lib/themes";
 import { coerceFontPair } from "@/lib/fontPairs";
 import { checkForUpdatesOnLaunch } from "@/lib/updater";
+
+/** Resolve once the resume store has loaded from disk (Plan 009). Its records
+ *  are re-keyed by the sessionsStore rehydrate, so we only need to wait for the
+ *  load to complete — the remap has already been applied by then. */
+function whenPaneResumeHydrated(): Promise<void> {
+  if (usePaneResumeStore.persist.hasHydrated()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const unsub = usePaneResumeStore.persist.onFinishHydration(() => {
+      unsub();
+      resolve();
+    });
+  });
+}
 
 export default function App() {
   const quickViewerOpen = useMdStore((s) => s.quickViewer.open);
@@ -126,6 +140,11 @@ export default function App() {
       // single-session revive is the same code path as clicking that session
       // in the sidebar: status flips → orchestrator diff → panes spawn.
       if (!seededId) {
+        // Plan 009: the resume store (paneId-keyed, remapped to match this
+        // launch's fresh ids) must be hydrated before we revive, so reviveSpawn
+        // reads each pane's resume record and offers Resume instead of blindly
+        // re-running the raw launch command.
+        await whenPaneResumeHydrated();
         const st = useSessionsStore.getState();
         if (st.reopenLastSession && st.lastRunningSessionIds.length > 0) {
           cancelResume = sequentialResume(

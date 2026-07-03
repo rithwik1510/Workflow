@@ -1,0 +1,115 @@
+/* PaneResumeBanner — slim overlay chip pinned at the top of a terminal pane
+ * that was running an agent when Lume closed (Plan 009).
+ *
+ * OVERLAY, never flow: absolutely positioned so it never shifts the xterm grid
+ * (a reflow would rewrap the shell). Slides down + fades in via the usePresence
+ * data-state pattern; the app-wide prefers-reduced-motion rule (theme.css)
+ * neutralises the transition, and usePresence short-circuits mount/unmount, so
+ * this file needs no reduced-motion handling of its own.
+ *
+ * GOTCHA (documented in SessionRow.module.css): an undefined custom property
+ * invalidates the WHOLE declaration. Every var() below carries a literal
+ * fallback so the chip can never render invisible. */
+
+.chip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 4; /* above the drop-target overlay (zIndex 3) in TerminalPane */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 5px 6px 5px 10px;
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  /* Resting (open) state. transform-origin at top so the slide reads as
+   * dropping in from the pane's top edge. */
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.chip[data-state="closed"] {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+/* Agent glyph — tinted by the per-agent class (glyphClaude/Codex/Gemini from
+ * SessionRow.module.css) applied alongside. */
+.glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0, #e6e6e6);
+}
+
+/* "folder missing" hint — muted warning, sits between the label and buttons. */
+.warn {
+  flex: none;
+  color: var(--accent-amber, #e0a458);
+  font-size: 11px;
+}
+
+.actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--fg-1, #9a9a9a);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.btn:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+}
+
+/* Resume — the one accented affordance. */
+.resume {
+  color: var(--accent, #5fa8ff);
+  border-color: var(--accent-dim, #2f7adc);
+}
+.resume:hover {
+  color: var(--bg-0, #0a0a0a);
+  background: var(--accent, #5fa8ff);
+  border-color: var(--accent, #5fa8ff);
+}
+.resume:disabled {
+  color: var(--fg-3, #4a4a4a);
+  border-color: var(--border, #222222);
+  background: transparent;
+  cursor: not-allowed;
+}

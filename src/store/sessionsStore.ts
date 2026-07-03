@@ -27,6 +27,7 @@ import { leaf, leaves as treeLeaves } from "@/store/layout/tree";
 import type { PaneId, Shell } from "@/types";
 import { nextPaneId } from "@/lib/paneIds";
 import { tauriPersistStorage } from "@/lib/persistStorage";
+import { applyPaneIdRemap } from "@/store/paneResumeStore";
 import {
   autoSuffixSessionName,
   basename,
@@ -558,8 +559,11 @@ export const useSessionsStore = create<SessionsState>()(
             // counter resets each launch, so two sessions from different runs can
             // both hold "pane-101", which makes findSessionForPane resolve the
             // wrong session (e.g. spawning a terminal in the wrong folder).
-            remapSessionPaneIds(coerced.sessions ?? {});
+            const paneIdRemap = remapSessionPaneIds(coerced.sessions ?? {});
             useSessionsStore.setState(coerced as SessionsState);
+            // Plan 009: the resume store is keyed by paneId, so it must follow the
+            // exact same remap or its records would orphan against the new ids.
+            applyPaneIdRemap(paneIdRemap);
           } catch (err) {
             console.error("sessionsStore rehydrate failed; starting clean", err);
             useSessionsStore.setState(emptyState() as unknown as SessionsState);
@@ -664,8 +668,14 @@ function remapTreePaneIds(node: LayoutNode, mapper: (old: PaneId) => PaneId): La
  * collisions already on disk. Safe because rehydrated sessions are all stopped
  * — no live PTY/Terminal references the old ids yet. Mutates in place; called
  * on the fresh session copies produced by coerceRehydrated.
+ *
+ * Returns the combined old→new mapping across all sessions so other paneId-keyed
+ * persisted state (paneResumeStore) can follow the exact same remap.
  */
-export function remapSessionPaneIds(sessions: Record<SessionId, Session>): void {
+export function remapSessionPaneIds(
+  sessions: Record<SessionId, Session>
+): Record<PaneId, PaneId> {
+  const combined: Record<PaneId, PaneId> = {};
   for (const session of Object.values(sessions)) {
     if (!session.layoutRoot) continue;
     const map = new Map<PaneId, PaneId>();
@@ -674,6 +684,7 @@ export function remapSessionPaneIds(sessions: Record<SessionId, Session>): void 
       if (next === undefined) {
         next = nextPaneId();
         map.set(old, next);
+        combined[old] = next;
       }
       return next;
     };
@@ -682,6 +693,7 @@ export function remapSessionPaneIds(sessions: Record<SessionId, Session>): void 
       session.focusedPaneId = map.get(session.focusedPaneId) ?? null;
     }
   }
+  return combined;
 }
 
 // ---------------------------------------------------------------------------
