@@ -1,0 +1,78 @@
+// prefsStore — small persisted store for BEHAVIORAL UI preferences (Plan 011).
+//
+// Why a dedicated store: config.toml / settingsStore is schema-locked Rust
+// config (serde deny_unknown_fields) — behavioral toggles that only the
+// frontend cares about don't belong there. Precedent: Plan 009 put auto-resume
+// in paneResumeStore. This is the general home for such prefs, keyed by a flat
+// set of named booleans/values so later plans can add keys without a migration
+// (Plan 012's paste pref is expected to join here). Keep it generic: one file
+// on disk (lume-prefs.json), one version, additive keys only.
+//
+// Seed values (locked with the operator, Plan 011):
+//   - osNotifications: true   — master switch for OS attention escape.
+//   - toastOnTurnComplete: false — opt-in upgrade of "your move" to a toast.
+
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { immer } from "zustand/middleware/immer";
+
+import { tauriPersistStorage } from "@/lib/persistStorage";
+
+export interface PrefsState {
+  /** Master switch: when OFF, NOTHING escapes the window (no toast, no flash,
+   *  no badge). Default ON — the whole point of Plan 011 is that the fleet can
+   *  reach you when Lume is minimized. */
+  osNotifications: boolean;
+  /** When ON, a completed turn ("your move") also raises an OS toast, not just
+   *  the badge. Default OFF — turn-complete is calmer than a permission block,
+   *  so the toast is opt-in. */
+  toastOnTurnComplete: boolean;
+}
+
+interface PrefsActions {
+  setOsNotifications: (on: boolean) => void;
+  setToastOnTurnComplete: (on: boolean) => void;
+  reset: () => void;
+}
+
+export type PrefsStore = PrefsState & PrefsActions;
+
+const DEFAULTS: PrefsState = {
+  osNotifications: true,
+  toastOnTurnComplete: false,
+};
+
+export const usePrefsStore = create<PrefsStore>()(
+  persist(
+    immer((set) => ({
+      ...DEFAULTS,
+
+      setOsNotifications: (on) =>
+        set((s) => {
+          s.osNotifications = on;
+        }),
+
+      setToastOnTurnComplete: (on) =>
+        set((s) => {
+          s.toastOnTurnComplete = on;
+        }),
+
+      reset: () =>
+        set((s) => {
+          s.osNotifications = DEFAULTS.osNotifications;
+          s.toastOnTurnComplete = DEFAULTS.toastOnTurnComplete;
+        }),
+    })),
+    {
+      name: "prefs",
+      storage: createJSONStorage(() => tauriPersistStorage("lume-prefs.json")),
+      version: 1,
+      // Explicit allow-list: only known behavioral prefs persist. A key added
+      // in a later plan must be added here too (keeps the on-disk file tidy).
+      partialize: (state) => ({
+        osNotifications: state.osNotifications,
+        toastOnTurnComplete: state.toastOnTurnComplete,
+      }),
+    }
+  )
+);
