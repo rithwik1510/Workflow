@@ -24,6 +24,10 @@ import { MainArea } from "@/components/MainArea";
 // only mounts when Editor Full View is active, so defer the whole chunk until
 // then (Plan 010 §1 — keep language loading + editor surface off first paint).
 const MdEditor = lazy(() => import("@/components/MdEditor"));
+// Lazy: the Diff tab pulls in @codemirror/merge + (dynamically) language
+// grammars. It only mounts when the Diff surface is open, so defer the chunk
+// (Plan 010 Phase B — same rationale as the Editor above).
+const DiffView = lazy(() => import("@/components/DiffView"));
 import { Preview } from "@/components/Preview";
 import { QuickViewer } from "@/components/QuickViewer";
 import { SessionsSidebar } from "@/components/SessionsSidebar";
@@ -41,6 +45,7 @@ import { runMigrationIfNeeded } from "@/sessions/migration";
 import { leaves } from "@/store/layout/tree";
 import { useLayoutStore } from "@/store/layoutStore";
 import { useMdStore } from "@/store/mdStore";
+import { useDiffStore } from "@/store/diffStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { paneLaunchSpec, useSessionsStore } from "@/store/sessionsStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -75,32 +80,67 @@ export default function App() {
   const quickViewerOpen = useMdStore((s) => s.quickViewer.open);
   const previewOpen = usePreviewStore((s) => s.open);
   const mdMode = useMdStore((s) => s.mdEditorMode);
+  const diffOpen = useDiffStore((s) => s.open);
   const splitView = useSessionsStore((s) => s.splitView);
 
   // Session split-view is mutually exclusive with the other central-area
-  // surfaces (Quick Viewer / Preview / MD Editor Full View) — the v1 decision.
-  // One transition-based guard so the LATEST action wins (no who-fired-first
-  // race): if the split just opened it closes the panels; if a panel/MD-full
-  // just opened while a split was up, it collapses the split.
+  // surfaces (Quick Viewer / Preview / MD Editor Full View / Diff tab) — the v1
+  // decision. One transition-based guard so the LATEST action wins (no
+  // who-fired-first race): if the split just opened it closes the panels; if a
+  // panel/full surface just opened while a split was up, it collapses the split.
+  // The two full-area surfaces (Editor Full View, Diff) are ALSO mutually
+  // exclusive with each other — opening one closes the other so App never has to
+  // pick between two "full" branches.
   const prevSplit = useRef(splitView);
-  const prevSurfaces = useRef({ qv: quickViewerOpen, pv: previewOpen, md: mdMode });
+  const prevSurfaces = useRef({
+    qv: quickViewerOpen,
+    pv: previewOpen,
+    md: mdMode,
+    diff: diffOpen,
+  });
   useEffect(() => {
     const splitJustOpened = !prevSplit.current && !!splitView;
+    const mdJustOpened = prevSurfaces.current.md !== "full" && mdMode === "full";
+    const diffJustOpened = !prevSurfaces.current.diff && diffOpen;
     const surfaceJustOpened =
       (!prevSurfaces.current.qv && quickViewerOpen) ||
       (!prevSurfaces.current.pv && previewOpen) ||
-      (prevSurfaces.current.md !== "full" && mdMode === "full");
+      mdJustOpened ||
+      diffJustOpened;
 
     if (splitJustOpened) {
       if (useMdStore.getState().quickViewer.open) useMdStore.getState().closeQuickViewer();
       if (usePreviewStore.getState().open) usePreviewStore.getState().closePreview();
+      if (useDiffStore.getState().open) useDiffStore.getState().closeDiff();
     } else if (surfaceJustOpened && splitView) {
       useSessionsStore.getState().closeSplit();
     }
 
+    // Full-area surface arbitration: whichever of Editor / Diff opened last wins.
+    if (diffJustOpened && useMdStore.getState().mdEditorMode === "full") {
+      useMdStore.getState().setMdEditorMode("off");
+    }
+    if (mdJustOpened && useDiffStore.getState().open) {
+      useDiffStore.getState().closeDiff();
+    }
+
     prevSplit.current = splitView;
-    prevSurfaces.current = { qv: quickViewerOpen, pv: previewOpen, md: mdMode };
-  }, [splitView, quickViewerOpen, previewOpen, mdMode]);
+    prevSurfaces.current = {
+      qv: quickViewerOpen,
+      pv: previewOpen,
+      md: mdMode,
+      diff: diffOpen,
+    };
+  }, [splitView, quickViewerOpen, previewOpen, mdMode, diffOpen]);
+
+  // The Diff tab is session-scoped (unlike the global Editor tabs): re-derive
+  // its repo set + file list when the active session changes while it's open, so
+  // switching sessions with the diff up shows the new session's repo, not a
+  // stale one. Guarded on `open` so it's a no-op when the surface is closed.
+  const activeSessionId = useSessionsStore((s) => s.activeSessionId);
+  useEffect(() => {
+    if (useDiffStore.getState().open) void useDiffStore.getState().openDiff();
+  }, [activeSessionId]);
 
   useEffect(() => {
     const dispose = installPtyOrchestrator();
@@ -293,7 +333,13 @@ export default function App() {
             independent of the sessions-sidebar visibility (☰ / Ctrl+B). */}
         <FileDrawer />
         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-          {mdMode === "full" ? (
+          {diffOpen ? (
+            // Diff takes precedence over the Editor when both flags linger for a
+            // frame; the arbitration effect above then turns the Editor off.
+            <Suspense fallback={<div style={{ width: "100%", height: "100%", background: "var(--bg-0)" }} />}>
+              <DiffView />
+            </Suspense>
+          ) : mdMode === "full" ? (
             // Fallback matches the editor bg so the lazy-chunk load doesn't flash.
             <Suspense fallback={<div style={{ width: "100%", height: "100%", background: "var(--bg-0)" }} />}>
               <MdEditor />
