@@ -274,6 +274,31 @@ export function IconTrash(props: IconProps) {
   );
 }
 
+/** Pane zoom (PaneTree corner cluster): diagonal out-arrows — "make this pane
+ *  fill the session". Pairs with IconContract for the restore state. */
+export function IconExpand({ size = 14, strokeWidth = 1.75 }: IconProps) {
+  return (
+    <Stroke size={size} strokeWidth={strokeWidth}>
+      <polyline points="14 5 19 5 19 10" />
+      <line x1="19" y1="5" x2="13.5" y2="10.5" />
+      <polyline points="10 19 5 19 5 14" />
+      <line x1="5" y1="19" x2="10.5" y2="13.5" />
+    </Stroke>
+  );
+}
+
+/** Pane zoom restore: diagonal in-arrows — "give the other panes back". */
+export function IconContract({ size = 14, strokeWidth = 1.75 }: IconProps) {
+  return (
+    <Stroke size={size} strokeWidth={strokeWidth}>
+      <polyline points="13.5 6 13.5 10.5 18 10.5" />
+      <line x1="19" y1="5" x2="13.5" y2="10.5" />
+      <polyline points="10.5 18 10.5 13.5 6 13.5" />
+      <line x1="5" y1="19" x2="10.5" y2="13.5" />
+    </Stroke>
+  );
+}
+
 // ── Window controls (frameless titlebar). Kept here so all titlebar glyphs
 //    live in one place; TopBar imports these too. ──────────────────────────
 

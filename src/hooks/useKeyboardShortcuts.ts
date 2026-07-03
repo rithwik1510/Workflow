@@ -320,6 +320,18 @@ const SHORTCUTS: Shortcut[] = [
   { match: (e) => isCtrlAlt(e) && e.key === "ArrowDown", run: () => splitFromFocused("down") },
   { match: (e) => isCtrlAlt(e) && e.key === "ArrowUp", run: () => splitFromFocused("up") },
 
+  // Zoom the focused pane — Ctrl+Alt+Z, joining the Ctrl+Alt pane family
+  // (tmux `prefix z`). Toggles; layoutStore auto-restores the grid on any
+  // focus move, split, close, or session switch, so the keyboard can never
+  // land in a hidden pane.
+  {
+    match: (e) => isCtrlAlt(e) && (e.key === "z" || e.key === "Z"),
+    run: () => {
+      useLayoutStore.getState().toggleZoomPane();
+      return true;
+    },
+  },
+
   // Focus moves — Ctrl+arrow
   { match: (e) => isCtrlOnly(e) && e.key === "ArrowRight", run: () => moveFocus("right") },
   { match: (e) => isCtrlOnly(e) && e.key === "ArrowLeft", run: () => moveFocus("left") },

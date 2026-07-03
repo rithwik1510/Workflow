@@ -1,0 +1,24 @@
+/* PaneTree zoom (Ctrl+Alt+Z / corner expand button).
+ *
+ * Pure CSS occlusion, no structural change: MainArea's invariant is that a
+ * mounted pane's DOM is NEVER unmounted or reparented (xterm WebGL canvases
+ * lose state). So zoom keeps the whole tree mounted and, at every split level
+ * on the path to the zoomed leaf, collapses the sibling Panel + divider and
+ * grows the containing Panel to 100%. Restore simply drops the classes — the
+ * library's inline flex styles (the user's ratios) were overridden, never
+ * removed, so the grid snaps back exactly.
+ *
+ * !important is required: react-resizable-panels writes `flex` as an inline
+ * style, and only !important stylesheet declarations outrank inline styles.
+ *
+ * Collapsed panes report 0×0 — TerminalPane's ResizeObserver deliberately
+ * skips degenerate fits and re-fires when the pane reappears, so hidden
+ * terminals never rewrap (same mechanism hidden sessions already rely on). */
+
+.zoomGrow {
+  flex: 1 1 100% !important;
+}
+
+.zoomHide {
+  display: none !important;
+}

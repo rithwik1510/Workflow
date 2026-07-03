@@ -42,6 +42,7 @@ const CATALOG: ShortcutGroup[] = [
       { label: "Split up", keys: ["Ctrl", "Alt", "↑"] },
       { label: "Split down", keys: ["Ctrl", "Alt", "↓"] },
       { label: "Focus right / left / up / down", keys: ["Ctrl", "→ ← ↑ ↓"] },
+      { label: "Zoom pane (fullscreen toggle)", keys: ["Ctrl", "Alt", "Z"] },
       { label: "Close focused pane", keys: ["Ctrl", "W"] },
       { label: "Reset terminal mouse modes (focused)", keys: ["Ctrl", "Shift", "R"] },
     ],

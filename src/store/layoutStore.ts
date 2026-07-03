@@ -43,6 +43,14 @@ import { useSessionsStore } from "@/store/sessionsStore";
 interface LayoutState {
   root: LayoutNode | null;
   focusedPaneId: PaneId | null;
+  /** Pane temporarily filling the whole session area (tmux `prefix z`). PURE
+   *  VIEW STATE, never persisted, owned by THIS store (not mirrored from
+   *  sessionsStore): the layout tree is untouched while zoomed — PaneTree just
+   *  collapses the sibling panels with CSS, so no terminal ever unmounts.
+   *  Invariant (enforced in mirror + toggleZoomPane): zoom exists only while
+   *  the zoomed pane IS the focused pane — any focus move, split, close, or
+   *  session switch restores the grid, which is the tmux muscle memory. */
+  zoomedPaneId: PaneId | null;
 }
 
 interface LayoutActions {
@@ -52,6 +60,9 @@ interface LayoutActions {
   focusPane: (paneId: PaneId) => void;
   moveFocus: (direction: FocusDirection) => void;
   resizeSplit: (a: PaneId, b: PaneId, ratio: number) => void;
+  /** Toggle pane zoom (Ctrl+Alt+Z / the corner expand button). No pane id →
+   *  the focused pane. No-ops on a single-leaf layout (nothing to zoom over). */
+  toggleZoomPane: (paneId?: PaneId) => void;
   reset: () => void;
 }
 
@@ -101,6 +112,7 @@ export const useLayoutStore = create<LayoutStore>()(
         // at module load returns pre-rehydration state.
         root: null as LayoutNode | null,
         focusedPaneId: null as PaneId | null,
+        zoomedPaneId: null as PaneId | null,
 
         initWithFirstPane: (paneId) => {
           const sess = activeSession();
@@ -169,9 +181,27 @@ export const useLayoutStore = create<LayoutStore>()(
           }
         },
 
+        toggleZoomPane: (paneId) => {
+          const cur = useLayoutStore.getState();
+          const target = paneId ?? cur.focusedPaneId;
+          if (target !== null && cur.zoomedPaneId === target) {
+            useLayoutStore.setState({ zoomedPaneId: null });
+            return;
+          }
+          if (target === null || cur.root === null) return;
+          if (!contains(cur.root, target)) return;
+          if (leaves(cur.root).length <= 1) return; // nothing to zoom over
+          useLayoutStore.setState({ zoomedPaneId: target });
+          // Zoom implies keyboard ownership. Focus BEFORE the mirror next runs
+          // would matter — but focusPane mutates sessionsStore, and by the time
+          // mirror fires, zoomedPaneId === focusedPaneId, so the invariant holds.
+          useLayoutStore.getState().focusPane(target);
+        },
+
         reset: () => {
-          // The layoutStore has no state of its own to reset. The bridge will
-          // mirror sessionsStore's now-empty state into our fields.
+          // The zoom flag is the one field this store owns; everything else is
+          // mirrored from sessionsStore (whose reset the bridge propagates).
+          useLayoutStore.setState({ zoomedPaneId: null });
           useSessionsStore.getState().reset();
         },
       }),
@@ -212,8 +242,19 @@ function mirror(state: ReturnType<typeof useSessionsStore.getState>) {
   const nextRoot = sess?.layoutRoot ?? null;
   const nextFocus = sess?.focusedPaneId ?? null;
   const cur = useLayoutStore.getState();
-  if (cur.root !== nextRoot || cur.focusedPaneId !== nextFocus) {
-    useLayoutStore.setState({ root: nextRoot, focusedPaneId: nextFocus });
+  // Zoom invariant: alive only while the zoomed pane exists in the (possibly
+  // new) tree AND still owns focus. A focus move, split (which focuses the new
+  // pane), close, or session switch therefore restores the grid — tmux
+  // semantics, and it guarantees the keyboard never lands in a hidden pane.
+  let nextZoom = cur.zoomedPaneId;
+  if (
+    nextZoom !== null &&
+    (nextRoot === null || !contains(nextRoot, nextZoom) || nextFocus !== nextZoom)
+  ) {
+    nextZoom = null;
+  }
+  if (cur.root !== nextRoot || cur.focusedPaneId !== nextFocus || cur.zoomedPaneId !== nextZoom) {
+    useLayoutStore.setState({ root: nextRoot, focusedPaneId: nextFocus, zoomedPaneId: nextZoom });
   }
 }
 

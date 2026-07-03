@@ -30,11 +30,12 @@ import {
 } from "react-resizable-panels";
 
 import { TerminalPane } from "@/components/TerminalPane";
-import { IconClose } from "@/components/icons";
+import { IconClose, IconExpand, IconContract } from "@/components/icons";
 import { beginResize, endResize } from "@/components/resizeBus";
+import zoomStyles from "@/components/PaneTree.module.css";
 import { useConfirmStore } from "@/store/confirmStore";
 import { useLayoutStore, getPaneIds } from "@/store/layoutStore";
-import { leaves, type LayoutNode } from "@/store/layout/tree";
+import { contains, leaves, type LayoutNode } from "@/store/layout/tree";
 import { isPtyBusy } from "@/terminals/ptyClient";
 import { closeBusyPaneConfirm } from "@/lib/confirmStrings";
 
@@ -66,6 +67,57 @@ export const PaneTree = memo(PaneTreeImpl);
 
 // ---------- Leaf rendering ----------
 
+/** Shared chrome for the corner-cluster buttons (zoom, close) so they read as
+ *  one seamless group: identical hit area, hover treatment, and transitions. */
+function CornerButton({
+  title,
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  title: string;
+  ariaLabel: string;
+  onClick: (e: ReactMouseEvent<HTMLButtonElement>) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+      style={{
+        width: 16,
+        height: 16,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "transparent",
+        color: "var(--fg-2)",
+        border: "1px solid transparent",
+        borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        fontSize: 12,
+        lineHeight: 1,
+        padding: 0,
+        transition: "color 120ms ease, background 120ms ease, border-color 120ms ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = "var(--fg-0)";
+        e.currentTarget.style.background = "var(--bg-2)";
+        e.currentTarget.style.borderColor = "var(--accent-dim)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = "var(--fg-2)";
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.borderColor = "transparent";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 interface LeafFrameProps {
   paneId: string;
 }
@@ -77,6 +129,10 @@ const LeafFrameImpl = ({ paneId }: LeafFrameProps) => {
   // showing a button that does nothing is worse UX than not showing one.
   const isLastPane = useLayoutStore((s) => getPaneIds(s).length <= 1);
   const closePane = useLayoutStore((s) => s.closePane);
+  // Zoom: same visibility rule as the X (meaningless with one pane). While
+  // zoomed this leaf is the only visible one, so ITS button is the restore.
+  const isZoomed = useLayoutStore((s) => s.zoomedPaneId === paneId);
+  const toggleZoomPane = useLayoutStore((s) => s.toggleZoomPane);
   const onClose = async (e: ReactMouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -136,40 +192,22 @@ const LeafFrameImpl = ({ paneId }: LeafFrameProps) => {
           {paneId}
         </span>
         {!isLastPane && (
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={onClose}
-            title="Close pane (Ctrl+W)"
-            aria-label={`Close ${paneId}`}
-            style={{
-              width: 16,
-              height: 16,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "transparent",
-              color: "var(--fg-2)",
-              border: "1px solid transparent",
-              borderRadius: "var(--radius-sm)",
-              cursor: "pointer",
-              fontSize: 12,
-              lineHeight: 1,
-              padding: 0,
-              transition: "color 120ms ease, background 120ms ease, border-color 120ms ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--fg-0)";
-              e.currentTarget.style.background = "var(--bg-2)";
-              e.currentTarget.style.borderColor = "var(--accent-dim)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--fg-2)";
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.borderColor = "transparent";
+          <CornerButton
+            title={isZoomed ? "Restore panes (Ctrl+Alt+Z)" : "Zoom pane (Ctrl+Alt+Z)"}
+            ariaLabel={isZoomed ? `Restore panes` : `Zoom ${paneId}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleZoomPane(paneId);
             }}
           >
+            {isZoomed ? <IconContract size={12} /> : <IconExpand size={12} />}
+          </CornerButton>
+        )}
+        {!isLastPane && (
+          <CornerButton title="Close pane (Ctrl+W)" ariaLabel={`Close ${paneId}`} onClick={onClose}>
             <IconClose size={12} />
-          </button>
+          </CornerButton>
         )}
       </div>
       <TerminalPane paneId={paneId} />
@@ -185,6 +223,16 @@ const SplitFrame = memo(function SplitFrame({ node, path }: { node: LayoutNode; 
 
   const resizeSplit = useLayoutStore((s) => s.resizeSplit);
   const groupRef = useRef<ImperativePanelGroupHandle | null>(null);
+
+  // Zoom (see PaneTree.module.css): when the zoomed leaf lives in this split,
+  // grow its side to 100% and hide the other side + the divider. Every split
+  // on the path to the leaf applies the same rule, so the leaf fills the whole
+  // session area while EVERYTHING stays mounted (MainArea's xterm invariant).
+  // Selector narrowed to "which side, if any" so unrelated zooms don't re-render.
+  const zoomSide = useLayoutStore((s) => {
+    if (s.zoomedPaneId === null || !contains(node, s.zoomedPaneId)) return null;
+    return contains(node.left, s.zoomedPaneId) ? "left" : "right";
+  });
 
   // Cache the first leaf on each side of the split. These are the two ids we
   // pass to resizeSplit so tree.ts can identify which split node to update.
@@ -241,10 +289,18 @@ const SplitFrame = memo(function SplitFrame({ node, path }: { node: LayoutNode; 
       ref={groupRef}
       style={{ width: "100%", height: "100%" }}
     >
-      <Panel defaultSize={leftDefault} minSize={PANE_MIN_PCT} maxSize={PANE_MAX_PCT}>
+      <Panel
+        defaultSize={leftDefault}
+        minSize={PANE_MIN_PCT}
+        maxSize={PANE_MAX_PCT}
+        className={
+          zoomSide === "left" ? zoomStyles.zoomGrow : zoomSide === "right" ? zoomStyles.zoomHide : undefined
+        }
+      >
         <PaneTree node={node.left} path={`${path}.L`} />
       </Panel>
       <PanelResizeHandle
+        className={zoomSide !== null ? zoomStyles.zoomHide : undefined}
         onDragging={(isDragging) => {
           // Body-class toggle + per-pane fit deferral. See resizeBus.ts
           // header comment for the WebGL canvas-clear root cause.
@@ -258,7 +314,14 @@ const SplitFrame = memo(function SplitFrame({ node, path }: { node: LayoutNode; 
             : { height: 3, cursor: "row-resize" }),
         }}
       />
-      <Panel defaultSize={rightDefault} minSize={PANE_MIN_PCT} maxSize={PANE_MAX_PCT}>
+      <Panel
+        defaultSize={rightDefault}
+        minSize={PANE_MIN_PCT}
+        maxSize={PANE_MAX_PCT}
+        className={
+          zoomSide === "right" ? zoomStyles.zoomGrow : zoomSide === "left" ? zoomStyles.zoomHide : undefined
+        }
+      >
         <PaneTree node={node.right} path={`${path}.R`} />
       </Panel>
     </PanelGroup>
