@@ -62,12 +62,35 @@ describe("PaneResumeBanner — render states", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("Resume writes the exact resume command + CR and clears the record", async () => {
+  it("Resume writes the exact resume command + CR, KEEPS the record, and registers identity", async () => {
     seed("p1"); // claude + sess-1 → "claude --resume sess-1"
     render(<PaneResumeBanner paneId="p1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
     expect(writePty).toHaveBeenCalledWith("p1", "claude --resume sess-1\r");
-    expect(usePaneResumeStore.getState().records["p1"]).toBeUndefined();
+    // The record survives (clearing it made hook-less agents resumable exactly
+    // once) and keeps the session id for the NEXT restart's exact resume.
+    const rec = usePaneResumeStore.getState().records["p1"];
+    expect(rec).toBeDefined();
+    expect(rec!.agentSessionId).toBe("sess-1");
+    expect(rec!.aliveAtShutdown).toBe(true);
+    // notePaneLaunch registered command-derived identity — this is what hides
+    // the banner (hasLiveAgent), not record deletion.
+    expect(useAgentStore.getState().panes["p1"]?.agent).toBe("claude");
+  });
+
+  it("Codex survives a Resume round-trip — the record still offers resume next restart", async () => {
+    // The regression this guards: hook-less agents have nothing to re-create a
+    // cleared record, so Resume used to work exactly once for Codex.
+    usePaneResumeStore
+      .getState()
+      .recordLaunchCommand("p2", { agent: "codex", launchCommand: "codex", cwd: "/proj" });
+    render(<PaneResumeBanner paneId="p2" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(writePty).toHaveBeenCalledWith("p2", "codex resume --last\r");
+    const rec = usePaneResumeStore.getState().records["p2"];
+    expect(rec).toBeDefined();
+    expect(rec!.agent).toBe("codex");
+    expect(rec!.aliveAtShutdown).toBe(true);
   });
 
   it("Just shell clears the record without writing to the pty", async () => {

@@ -37,7 +37,7 @@ import { ingest, forget as forgetRenderSink } from "@/terminals/renderSink";
 import { openPty, writePty, killPty, isAppError } from "@/terminals/ptyClient";
 import { detectShells, configIdMatchesShell } from "@/lib/shellsClient";
 import { noteOutput, forgetPane, disposeAttentionTracker } from "@/sessions/attentionTracker";
-import { forgetPaneAgent, noteCommandAgent } from "@/sessions/agentTracker";
+import { forgetPaneAgent, notePaneLaunch } from "@/sessions/agentTracker";
 import { agentFromCommand } from "@/sessions/agentIdentity";
 import { onCommandEvent, paneCommandState } from "@/sessions/commandTracker";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -158,22 +158,14 @@ export async function spawnPane(
           const state = useSessionsStore.getState();
           const session = findSessionForPane(state, paneId);
           if (session) state.setPaneStartupCommand(session.id, paneId, line);
-          // Glyph-only agent identity from the launch line (Plan 008). No-op
-          // unless the line names a known agent AND the pane has no entry yet.
-          noteCommandAgent(paneId, line);
-          // Plan 009 resume memory: if the line launches a known agent, remember
-          // it (verbatim) so a restart can offer [Resume]. If it launches
-          // something else, the user has moved on — drop any stale resume record.
-          const agent = agentFromCommand(line);
-          const resume = usePaneResumeStore.getState();
-          if (agent) {
-            resume.recordLaunchCommand(paneId, {
-              agent,
-              launchCommand: line,
-              cwd: session?.folderPath ?? null,
-            });
+          // Agent identity glyph (Plan 008) + resume memory (Plan 009) in one
+          // note. If the typed line launches something ELSE, the user has moved
+          // on — drop any stale resume record (typed lines only: programmatic
+          // replays never clear, they can only be agent launches).
+          if (agentFromCommand(line)) {
+            notePaneLaunch(paneId, line, session?.folderPath ?? null);
           } else {
-            resume.clearRecord(paneId);
+            usePaneResumeStore.getState().clearRecord(paneId);
           }
         }
         capture = makeCommandCapture(); // re-arm for the next prompt line
@@ -310,6 +302,11 @@ export function armStartupAutorun(paneId: PaneId, command: string): void {
     if (evt.paneId !== paneId || evt.type !== "prompt-ready") return;
     cancel();
     void writePty(paneId, `${command}\r`).catch(() => undefined);
+    // The input-capture wire never sees writePty traffic, so an agent launched
+    // by the replay must be noted here or identity + resume memory skip it
+    // (Claude got rescued by its hooks; Codex/Gemini silently never resumed).
+    const session = findSessionForPane(useSessionsStore.getState(), paneId);
+    notePaneLaunch(paneId, command, session?.folderPath ?? null);
   });
   const timer = window.setTimeout(cancel, AUTORUN_PROMPT_TIMEOUT_MS);
   pendingAutoruns.set(paneId, cancel);

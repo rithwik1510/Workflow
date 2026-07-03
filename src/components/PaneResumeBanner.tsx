@@ -10,9 +10,11 @@
 // never talks to a running agent.
 //
 // Visibility is derived, not stored: the moment a live agent registers for this
-// pane (agentStore gets an entry — the resume actually took), the banner hides;
-// clicking either button clears the record, which also hides it. So there is no
-// dismissed flag to persist.
+// pane (agentStore gets an entry), the banner hides. [Resume] KEEPS the record —
+// it notes the write as a launch (notePaneLaunch), which registers identity (and
+// so hides the banner) and refreshes the record for the NEXT restart. Clearing
+// it here instead made hook-less agents (Codex) resumable exactly once. Only
+// [Just shell] and typing a different command clear the record.
 
 import { useEffect, useState } from "react";
 
@@ -23,6 +25,7 @@ import { usePresence } from "@/hooks/usePresence";
 import { useAgentStore, type AgentName } from "@/store/agentStore";
 import { usePaneResumeStore } from "@/store/paneResumeStore";
 import { resumeCommandFor } from "@/sessions/agentResume";
+import { notePaneLaunch } from "@/sessions/agentTracker";
 import { agentLabel } from "@/sessions/sessionSignal";
 import { dirExists } from "@/lib/fsClient";
 import { writePty } from "@/terminals/ptyClient";
@@ -76,10 +79,12 @@ export function PaneResumeBanner({ paneId }: { paneId: PaneId }) {
   const onResume = () => {
     if (cwdMissing) return;
     // The pane is a live shell sitting at its prompt — write the command the
-    // user just saw, verbatim, and let them watch it run. Then forget the
-    // record; if the resume takes, a live agent would have hidden us anyway.
+    // user just saw, verbatim, and let them watch it run. KEEP the record:
+    // notePaneLaunch registers identity (hiding this banner synchronously) and
+    // refreshes the record so the NEXT restart can offer Resume again — vital
+    // for hook-less agents (Codex), which have nothing else to re-create it.
     void writePty(paneId, `${resumeCmd}\r`).catch(() => undefined);
-    clearRecord(paneId);
+    notePaneLaunch(paneId, resumeCmd, record.cwd);
   };
 
   const onJustShell = () => clearRecord(paneId);

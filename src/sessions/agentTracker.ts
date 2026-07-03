@@ -182,6 +182,24 @@ export function noteCommandAgent(paneId: PaneId, command: string): void {
   store.setPaneAgent(paneId, { agent, phase: "idle", source: "command" });
 }
 
+/** A command LUME ITSELF wrote to a pane: the startup-autorun replay, the
+ *  resume banner's [Resume], and auto-resume. The input-capture wire
+ *  deliberately never sees writePty traffic ("replaying a command never
+ *  re-captures it"), so programmatic launches must be noted explicitly here —
+ *  otherwise agent identity and resume memory silently skip them. That gap is
+ *  why Codex (no hooks to compensate, unlike Claude) could resume exactly once
+ *  and then never again: [Resume] cleared the record and nothing re-created it.
+ *  Notes glyph identity AND refreshes the resume record; no-op for non-agent
+ *  commands (an `npm run dev` autorun is not resume material). */
+export function notePaneLaunch(paneId: PaneId, command: string, cwd: string | null): void {
+  const agent = agentFromCommand(command);
+  if (agent === null) return;
+  noteCommandAgent(paneId, command);
+  usePaneResumeStore
+    .getState()
+    .recordLaunchCommand(paneId, { agent, launchCommand: command, cwd });
+}
+
 // Command lifecycle: a finished command drops ONLY command-derived identity —
 // the process it named is gone. Hook entries are removed by SessionEnd /
 // forgetPaneAgent, never here (a hooked Claude runs as one long command whose
