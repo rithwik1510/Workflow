@@ -17,9 +17,9 @@ import styles from "@/components/StatusBar.module.css";
 import { useMdStore } from "@/store/mdStore";
 import { useLayoutStore } from "@/store/layoutStore";
 import { usePtyStore } from "@/store/ptyStore";
-import { useSessionsStore, isSessionVisible } from "@/store/sessionsStore";
+import { useSessionsStore } from "@/store/sessionsStore";
 import { useAgentStore } from "@/store/agentStore";
-import { sessionAgentView, computeSessionSignal } from "@/sessions/sessionSignal";
+import { needsYouCounts } from "@/sessions/sessionSignal";
 import { useSidebarStore } from "@/store/sidebarStore";
 import { basename } from "@/lib/sessions/groupingHelpers";
 import { shellLabel } from "@/lib/shellsClient";
@@ -95,28 +95,18 @@ export function StatusBar() {
 
   // Needs-you roll-up (Plan 008): across BACKGROUND sessions (the visible one
   // never signals), count those blocked on permission vs waiting for your move.
-  // Informational here; click-to-jump is future routing work.
+  // `needsYouCounts` is the shared selector Plan 011's taskbar badge also uses,
+  // so the chip here and the OS badge can never disagree (single source).
   const sessions = useSessionsStore((s) => s.sessions);
   const splitView = useSessionsStore((s) => s.splitView);
   const agentPanes = useAgentStore((s) => s.panes);
   // Memoized: the StatusBar already re-renders on every ptyStore change (the
   // audited wide-subscription hot path), and this count only depends on the
   // session/agent slices — don't recount the fleet for unrelated renders.
-  const [blockedCount, yourMoveCount] = useMemo(() => {
-    let blocked = 0;
-    let yourMove = 0;
-    for (const sess of Object.values(sessions)) {
-      const signal = computeSessionSignal({
-        visible: isSessionVisible({ splitView, activeSessionId }, sess.id),
-        unread: sess.unread,
-        working: sess.working,
-        agentSignal: sessionAgentView(agentPanes, sess).signal,
-      });
-      if (signal === "permission") blocked++;
-      else if (signal === "your-move") yourMove++;
-    }
-    return [blocked, yourMove] as const;
-  }, [sessions, splitView, activeSessionId, agentPanes]);
+  const { permission: blockedCount, yourMove: yourMoveCount } = useMemo(
+    () => needsYouCounts(agentPanes, Object.values(sessions), { splitView, activeSessionId }),
+    [sessions, splitView, activeSessionId, agentPanes]
+  );
 
   return (
     <div className={styles.root} aria-label="Status Bar">

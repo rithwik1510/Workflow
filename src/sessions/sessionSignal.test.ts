@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// sessionSignal now imports getVisibleSessionIds from sessionsStore, which
+// persists via plugin-store. Stub it so importing this module needs no Tauri
+// runtime and never touches real user config.
+vi.mock("@tauri-apps/plugin-store", () => ({
+  load: vi.fn(async () => ({
+    get: vi.fn(async () => null),
+    set: vi.fn(async () => undefined),
+    delete: vi.fn(async () => undefined),
+  })),
+}));
 
 import { leaf, split } from "@/store/layout/tree";
 import type { PaneAgent } from "@/store/agentStore";
