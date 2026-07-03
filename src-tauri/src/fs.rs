@@ -10,9 +10,20 @@
 
 use serde::Serialize;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
+
+/// Files above this size open READ-ONLY with a banner (Plan 010 §2). CodeMirror
+/// stays responsive well past this, but 1.5 MB is the line past which a text
+/// file is almost certainly generated/data, not something you hand-edit.
+pub const EDITOR_SIZE_CAP: u64 = 1_572_864; // 1.5 * 1024 * 1024
+
+/// Bytes sniffed for a NUL to classify a file as binary. A NUL is valid UTF-8
+/// (U+0000), so `read_to_string` would happily load a binary blob — we must
+/// sniff the raw bytes ourselves.
+const BINARY_SNIFF_BYTES: usize = 8192;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +117,64 @@ pub fn write_text_file(path: String, contents: String) -> AppResult<()> {
     })
 }
 
+/// Probe + read a file for the Editor (Plan 010 §2). Unlike `read_text_file`,
+/// this reports the size and a binary/too-large classification so the frontend
+/// can refuse binaries (toast) and open oversized files read-only (banner).
+///
+/// Order matters: sniff the first 8 KB for a NUL BEFORE reading the whole
+/// file, so a multi-GB binary is rejected without loading it into memory.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorFile {
+    pub content: String,
+    pub size: u64,
+    pub too_large: bool,
+    pub binary: bool,
+}
+
+#[tauri::command]
+pub fn read_editor_file(path: String) -> AppResult<EditorFile> {
+    let meta = fs::metadata(&path).map_err(|e| AppError::Internal {
+        reason: format!("metadata {}: {}", path, e),
+    })?;
+    let size = meta.len();
+    let too_large = size > EDITOR_SIZE_CAP;
+
+    let mut file = fs::File::open(&path).map_err(|e| AppError::Internal {
+        reason: format!("open {}: {}", path, e),
+    })?;
+    let mut head = vec![0u8; BINARY_SNIFF_BYTES];
+    let n = file.read(&mut head).map_err(|e| AppError::Internal {
+        reason: format!("read {}: {}", path, e),
+    })?;
+    if head[..n].contains(&0) {
+        // Binary — bail before reading the rest. Frontend shows a toast.
+        return Ok(EditorFile {
+            content: String::new(),
+            size,
+            too_large,
+            binary: true,
+        });
+    }
+
+    // Text: reuse the already-read head, then append the remainder so we don't
+    // read those first bytes twice.
+    let mut rest = Vec::new();
+    file.read_to_end(&mut rest)
+        .map_err(|e| AppError::Internal {
+            reason: format!("read {}: {}", path, e),
+        })?;
+    let mut bytes = head[..n].to_vec();
+    bytes.extend_from_slice(&rest);
+    let content = String::from_utf8_lossy(&bytes).to_string();
+    Ok(EditorFile {
+        content,
+        size,
+        too_large,
+        binary: false,
+    })
+}
+
 #[tauri::command]
 pub fn home_dir() -> AppResult<String> {
     dirs::home_dir()
@@ -179,5 +248,42 @@ mod tests {
         let path = dir.path().join("test.md").to_string_lossy().to_string();
         write_text_file(path.clone(), "hello".to_string()).unwrap();
         assert_eq!(read_text_file(path).unwrap(), "hello");
+    }
+
+    #[test]
+    fn read_editor_file_reads_text_with_flags_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs").to_string_lossy().to_string();
+        fs::write(&path, "fn main() {}\n").unwrap();
+        let f = read_editor_file(path).unwrap();
+        assert_eq!(f.content, "fn main() {}\n");
+        assert!(!f.binary);
+        assert!(!f.too_large);
+        assert_eq!(f.size, 13);
+    }
+
+    #[test]
+    fn read_editor_file_flags_binary_and_returns_no_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blob.bin").to_string_lossy().to_string();
+        // A NUL byte inside the sniff window — valid UTF-8, so only a byte
+        // sniff (not read_to_string) catches it.
+        fs::write(&path, b"MZ\x00\x00binary\x00payload").unwrap();
+        let f = read_editor_file(path).unwrap();
+        assert!(f.binary);
+        assert_eq!(f.content, "");
+    }
+
+    #[test]
+    fn read_editor_file_flags_oversized_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.txt").to_string_lossy().to_string();
+        // Just over the 1.5 MB cap, all printable ASCII (not binary).
+        let big = "a".repeat((EDITOR_SIZE_CAP + 16) as usize);
+        fs::write(&path, &big).unwrap();
+        let f = read_editor_file(path).unwrap();
+        assert!(f.too_large);
+        assert!(!f.binary);
+        assert_eq!(f.content.len(), big.len());
     }
 }

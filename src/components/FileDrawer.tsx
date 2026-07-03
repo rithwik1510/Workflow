@@ -147,11 +147,12 @@ export function FileDrawer() {
     if (folder === null) return;
     const name = window.prompt("New file name (relative to project root)");
     if (!name) return;
-    const path = `${folder}/${name.endsWith(".md") ? name : `${name}.md`}`;
+    // Use the name verbatim — the Editor handles any extension now (Plan 010).
+    // A name with no extension is created as-is (e.g. "Dockerfile", "notes").
+    const path = `${folder}/${name}`;
     try {
       await writeTextFile(path, "");
-      // CONTEXT.md: ＋ New File opens the new .md in MD Editor Full View,
-      // NOT the Quick Viewer.
+      // ＋ New File opens the new file in Editor Full View, not the Quick Viewer.
       await openMdTab(path);
     } catch (e) {
       useToastStore.getState().push({
@@ -187,7 +188,7 @@ export function FileDrawer() {
               aria-label="Filter files"
             />
           </div>
-          <button className={styles.iconButton} title="New .md file" onClick={onNewFile}>
+          <button className={styles.iconButton} title="New file" onClick={onNewFile}>
             <IconPlus size={14} />
           </button>
         </div>

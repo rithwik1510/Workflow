@@ -116,8 +116,10 @@ export function FileSearchResults({ root, query }: Props) {
       });
       return;
     }
-    void openPath(result.entry.path).catch((err) => {
-      console.error("openPath failed", err);
+    // Non-markdown files open in the Editor (Plan 010). Binary/oversized guards
+    // run inside openMdTab; "Open with default app" stays on the context menu.
+    void openMdTab(result.entry.path).catch((err) => {
+      console.error("openMdTab failed", err);
     });
   };
 
@@ -165,7 +167,15 @@ export function FileSearchResults({ root, query }: Props) {
 
     useContextMenuStore.getState().openMenu(e.clientX, e.clientY, [
       {
-        label: "Open",
+        label: "Open in Editor",
+        onClick: () => {
+          void openMdTab(result.entry.path).catch((err) => {
+            console.error("openMdTab failed", err);
+          });
+        },
+      },
+      {
+        label: "Open with default app",
         onClick: () => {
           void openPath(result.entry.path).catch((err) => {
             console.error("openPath failed", err);

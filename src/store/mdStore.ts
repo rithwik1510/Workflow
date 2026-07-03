@@ -1,19 +1,57 @@
 // src/store/mdStore.ts
+//
+// The Editor's tab model (Plan 010 Phase A). Despite the historical filename,
+// tabs now hold ANY text/code file, not just Markdown — `kind` distinguishes
+// the two: markdown tabs keep the rendered-preview toggle, code tabs are a
+// plain syntax-highlighted editor. Oversized files open `readOnly`. Each open
+// tab is watched on disk (editorWatch) so external edits by an agent surface
+// as a silent reload (clean tab) or a conflict bar (dirty tab).
 import { create } from "zustand";
 import { devtools, persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 
-import { readTextFile, writeTextFile } from "@/lib/fsClient";
+import { readTextFile, readEditorFile, writeTextFile } from "@/lib/fsClient";
 import { findFileByName } from "@/lib/fileSearch";
+import { watchEditorFile, unwatchEditorFile } from "@/lib/editorWatch";
 import { tauriPersistStorage } from "@/lib/persistStorage";
 import { useConfirmStore } from "@/store/confirmStore";
 import { useToastStore } from "@/store/toastStore";
+
+export type EditorTabKind = "markdown" | "code";
 
 export interface MdTab {
   id: string;
   path: string;
   content: string;
   dirty: boolean;
+  /** markdown → preview toggle available; code → plain editor only. */
+  kind: EditorTabKind;
+  /** Oversized file (> 1.5 MB): editable disabled, banner shown. */
+  readOnly: boolean;
+  /** Set when the file changed on disk while this tab has unsaved edits. Holds
+   *  the disk content so [Reload] can apply it. Null when in sync. */
+  conflict: { diskContent: string } | null;
+}
+
+/** Markdown file extensions — everything else opens as a `code` tab. */
+const MARKDOWN_RE = /\.(md|markdown|mdx|mdown|mkd)$/i;
+export function tabKindForPath(path: string): EditorTabKind {
+  return MARKDOWN_RE.test(path) ? "markdown" : "code";
+}
+
+// Self-write suppression (Plan 010 §3). After an in-app Save we stamp the
+// path; a `file-changed` echo arriving within the window is ignored so our own
+// write never raises the conflict bar. Content-comparison in handleExternalChange
+// is the backstop; this flag covers the save-race where the user typed mid-write
+// (buffer ≠ what we wrote to disk) which content-compare alone would misread.
+const SELF_WRITE_SUPPRESS_MS = 1200;
+const selfWriteAt = new Map<string, number>();
+function markSelfWrite(path: string): void {
+  selfWriteAt.set(path, Date.now());
+}
+function isSelfWrite(path: string): boolean {
+  const at = selfWriteAt.get(path);
+  return at !== undefined && Date.now() - at < SELF_WRITE_SUPPRESS_MS;
 }
 
 export interface QuickViewerState {
@@ -52,13 +90,19 @@ export interface MdStoreState {
   ) => Promise<void>;
   closeQuickViewer: () => void;
 
-  // MD Editor Full View (used in Phase 6)
+  // Editor Full View (any text/code file)
   setMdEditorMode: (mode: MdEditorMode) => void;
   openMdTab: (path: string) => Promise<void>;
   setActiveTab: (id: string) => void;
   setTabContent: (id: string, content: string) => void;
   saveMdTab: (id: string) => Promise<void>;
   closeMdTab: (id: string) => Promise<boolean>;
+
+  // External-change handling (Plan 010 §3). handleExternalChange is invoked by
+  // the Rust `file-changed` bridge; the other two resolve a raised conflict.
+  handleExternalChange: (path: string) => Promise<void>;
+  reloadTab: (id: string) => void;
+  keepConflictMine: (id: string) => void;
 
   setFocusedSurface: (s: FocusedSurface) => void;
 
@@ -152,7 +196,15 @@ export const useMdStore = create<MdStoreState>()(
           });
           return;
         }
-        const content = await readTextFile(path);
+        // Probe: refuse binaries, open oversized files read-only (Plan 010 §2).
+        const probe = await readEditorFile(path);
+        if (probe.binary) {
+          useToastStore.getState().push({
+            severity: "warn",
+            message: `Can't open ${path.split(/[/\\]/).pop() ?? path} — looks like a binary file`,
+          });
+          return;
+        }
         // Re-check after the await — a concurrent open of the same path may
         // have already created the tab while we were reading.
         const already = get().tabs.find((t) => t.path === path);
@@ -165,10 +217,21 @@ export const useMdStore = create<MdStoreState>()(
         }
         const id = nextTabId();
         set((s) => {
-          s.tabs.push({ id, path, content, dirty: false });
+          s.tabs.push({
+            id,
+            path,
+            content: probe.content,
+            dirty: false,
+            kind: tabKindForPath(path),
+            readOnly: probe.tooLarge,
+            conflict: null,
+          });
           s.activeTabId = id;
           s.mdEditorMode = "full";
         });
+        // Watch the file so an agent's external edits surface (fire-and-forget;
+        // watching is best-effort — a failure just means no live reload).
+        void watchEditorFile(path).catch(() => undefined);
       },
       setActiveTab: (id) =>
         set((s) => {
@@ -177,7 +240,8 @@ export const useMdStore = create<MdStoreState>()(
       setTabContent: (id, content) =>
         set((s) => {
           const t = s.tabs.find((t) => t.id === id);
-          if (t) {
+          // Read-only (oversized) tabs never take edits — ignore.
+          if (t && !t.readOnly) {
             t.content = content;
             t.dirty = true;
           }
@@ -185,15 +249,25 @@ export const useMdStore = create<MdStoreState>()(
       saveMdTab: async (id) => {
         const t = get().tabs.find((t) => t.id === id);
         if (!t) return;
+        if (t.readOnly) return; // oversized files are view-only
         const written = t.content; // snapshot exactly what we write to disk
+        // Stamp BEFORE the write so the watcher echo (which can arrive the
+        // instant the write lands) is recognised as our own, not an external
+        // change. Re-stamped after so a slow write still covers the echo.
+        markSelfWrite(t.path);
         try {
           await writeTextFile(t.path, written);
+          markSelfWrite(t.path);
           set((s) => {
             const tt = s.tabs.find((t) => t.id === id);
             // Only clear dirty if the content hasn't changed since this write
             // started; otherwise the user typed during the save and edits remain
             // unsaved.
-            if (tt && tt.content === written) tt.dirty = false;
+            if (tt && tt.content === written) {
+              tt.dirty = false;
+              // Saving is a resolution: our version is now on disk.
+              tt.conflict = null;
+            }
           });
           useToastStore.getState().push({
             severity: "success",
@@ -235,22 +309,82 @@ export const useMdStore = create<MdStoreState>()(
           }
           if (s.tabs.length === 0) s.mdEditorMode = "off";
         });
+        // Stop watching the closed file (unless another tab still holds the
+        // same path — dedup guarantees at most one tab per path, so it's safe).
+        void unwatchEditorFile(closing.path).catch(() => undefined);
         return true;
       },
+
+      // The Rust `file-changed` bridge calls this with the changed path.
+      //   - our own save echoing back → ignored (self-write flag / content ==)
+      //   - clean tab                 → silent reload from disk
+      //   - dirty tab                 → raise the conflict bar
+      handleExternalChange: async (path) => {
+        const tab = get().tabs.find((t) => t.path === path);
+        if (!tab) return; // not open (or closed mid-flight)
+        if (isSelfWrite(path)) return; // our Save is echoing back
+        let disk: string;
+        try {
+          disk = await readTextFile(path);
+        } catch {
+          return; // transient (mid-rename); the next event will retry
+        }
+        const cur = get().tabs.find((t) => t.path === path);
+        if (!cur) return;
+        if (disk === cur.content) return; // no real difference (incl. our write)
+        if (!cur.dirty) {
+          // Clean tab: adopt disk silently — the buffer had no edits to lose.
+          set((s) => {
+            const t = s.tabs.find((t) => t.id === cur.id);
+            if (t) {
+              t.content = disk;
+              t.dirty = false;
+              t.conflict = null;
+            }
+          });
+        } else {
+          // Dirty tab: don't clobber the user's edits — surface the choice.
+          set((s) => {
+            const t = s.tabs.find((t) => t.id === cur.id);
+            if (t) t.conflict = { diskContent: disk };
+          });
+        }
+      },
+      reloadTab: (id) =>
+        set((s) => {
+          const t = s.tabs.find((t) => t.id === id);
+          if (!t || !t.conflict) return;
+          t.content = t.conflict.diskContent;
+          t.dirty = false;
+          t.conflict = null;
+        }),
+      keepConflictMine: (id) =>
+        set((s) => {
+          const t = s.tabs.find((t) => t.id === id);
+          // Keep the buffer (still dirty); just dismiss the bar. The user's
+          // next Save overwrites disk with their version.
+          if (t) t.conflict = null;
+        }),
 
       setFocusedSurface: (focusedSurface) =>
         set((s) => {
           s.focusedSurface = focusedSurface;
         }),
 
-      reset: () =>
+      reset: () => {
+        // Release any open-file watchers before dropping the tabs.
+        for (const t of get().tabs) {
+          void unwatchEditorFile(t.path).catch(() => undefined);
+        }
+        selfWriteAt.clear();
         set((s) => {
           s.mdEditorMode = "off";
           s.tabs = [];
           s.activeTabId = null;
           s.quickViewer = { open: false, path: null, content: "" };
           s.focusedSurface = null;
-        }),
+        });
+      },
     })),
       {
         name: "md",

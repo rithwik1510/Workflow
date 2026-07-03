@@ -9,6 +9,19 @@ export function readTextFile(path: string): Promise<string> {
   return invoke<string>("read_text_file", { path });
 }
 
+/** Probe + read a file for the Editor (Plan 010 §2). `binary` files should be
+ *  refused with a toast; `tooLarge` files open read-only with a banner. */
+export interface EditorFile {
+  content: string;
+  size: number;
+  tooLarge: boolean;
+  binary: boolean;
+}
+
+export function readEditorFile(path: string): Promise<EditorFile> {
+  return invoke<EditorFile>("read_editor_file", { path });
+}
+
 export function writeTextFile(path: string, contents: string): Promise<void> {
   return invoke<void>("write_text_file", { path, contents });
 }

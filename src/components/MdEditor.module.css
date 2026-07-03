@@ -115,6 +115,90 @@
     0 0 20px rgba(212, 168, 92, 0.55);
 }
 
+/* Read-only banner (oversized files). Slim, top-anchored strip below the
+ * header — no jolt to the editor content beyond its own fixed height. Every
+ * var() carries a literal fallback: an undefined custom property invalidates
+ * the whole declaration (see SessionRow.module.css note). */
+.readOnlyBanner {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg-1, #c8c8c8);
+  background: var(--bg-2, #1c1c1c);
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  animation: view-fade-in var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+
+/* Conflict bar (dirty tab changed on disk). Slim strip; the presence pattern
+ * (data-state) eases it in/out via opacity + a 4px slide so it never snaps. */
+.conflictBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 8px 5px 12px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-0, #e6e6e6);
+  /* Amber-tinted so it reads as "attention" without the alarm of red. */
+  background: var(--bg-2, #1c1c1c);
+  border-bottom: 1px solid var(--accent-dim, #6b552f);
+  box-shadow: inset 0 2px 0 rgba(212, 168, 92, 0.5);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity var(--dur-fast, 120ms) var(--ease-out, ease),
+    transform var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.conflictBar[data-state="open"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.conflictText {
+  font-weight: 500;
+  color: var(--accent, #d4a85c);
+}
+
+.conflictActions {
+  display: flex;
+  gap: 6px;
+}
+
+.conflictBtn,
+.conflictBtnGhost {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  border: 1px solid var(--border, #2a2a2a);
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease),
+    color var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.conflictBtn {
+  color: var(--bg-0, #121212);
+  background: var(--accent, #d4a85c);
+  border-color: var(--accent, #d4a85c);
+}
+.conflictBtn:hover {
+  filter: brightness(1.08);
+}
+.conflictBtnGhost {
+  color: var(--fg-1, #c8c8c8);
+  background: var(--bg-3, #262626);
+}
+.conflictBtnGhost:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #262626);
+  border-color: var(--accent-dim, #6b552f);
+}
+
 .body {
   flex: 1;
   min-height: 0;

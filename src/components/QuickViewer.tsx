@@ -75,8 +75,8 @@ export function QuickViewer() {
         <div className={styles.actions}>
           <button
             className={styles.iconButton}
-            title="Open in MD Editor"
-            aria-label="Open in MD Editor"
+            title="Open in Editor"
+            aria-label="Open in Editor"
             onClick={onEdit}
           >
             <PenIcon />
