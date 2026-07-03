@@ -13,14 +13,17 @@
 // across the top. The Sidebar remains visible." The sidebars and the
 // ContextMenu portal stay mounted alongside.
 
-import { useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ContextMenu } from "@/components/ContextMenu";
 import { FileDrawer } from "@/components/FileDrawer";
 import { MainArea } from "@/components/MainArea";
-import { MdEditor } from "@/components/MdEditor";
+// Lazy: the Editor pulls in CodeMirror + (dynamically) language grammars. It
+// only mounts when Editor Full View is active, so defer the whole chunk until
+// then (Plan 010 §1 — keep language loading + editor surface off first paint).
+const MdEditor = lazy(() => import("@/components/MdEditor"));
 import { Preview } from "@/components/Preview";
 import { QuickViewer } from "@/components/QuickViewer";
 import { SessionsSidebar } from "@/components/SessionsSidebar";
@@ -45,6 +48,7 @@ import { useSidebarStore } from "@/store/sidebarStore";
 import { applyXtermFontFamilyToAll, applyXtermThemeToAll } from "@/terminals/registry";
 import { installPtyOrchestrator } from "@/terminals/orchestrator";
 import { installRenderGovernor } from "@/terminals/renderGovernor";
+import { onEditorFileChanged } from "@/lib/editorWatch";
 import { useExternalFileDrop } from "@/hooks/useExternalFileDrop";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { nextPaneId } from "@/lib/paneIds";
@@ -183,6 +187,26 @@ export default function App() {
     };
   }, []);
 
+  // Editor external-change bridge (Plan 010 §3): route the Rust `file-changed`
+  // stream into the store, which decides silent-reload vs conflict-bar per tab.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onEditorFileChanged((path) => {
+      void useMdStore.getState().handleExternalChange(path);
+    })
+      .then((un) => {
+        // If the component already unmounted, drop the listener immediately.
+        if (disposed) un();
+        else unlisten = un;
+      })
+      .catch((err) => console.warn("editor watch bridge: listen failed", err));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   // Update check — runs once at boot in release builds only.
   // Dev builds have no updater endpoint, so we guard on import.meta.env.PROD
   // to avoid noisy network errors during development.
@@ -251,7 +275,10 @@ export default function App() {
         <FileDrawer />
         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
           {mdMode === "full" ? (
-            <MdEditor />
+            // Fallback matches the editor bg so the lazy-chunk load doesn't flash.
+            <Suspense fallback={<div style={{ width: "100%", height: "100%", background: "var(--bg-0)" }} />}>
+              <MdEditor />
+            </Suspense>
           ) : (
             <PanelGroup
               direction="horizontal"
