@@ -30,7 +30,7 @@ import { leaves } from "@/store/layout/tree";
 import { nextPaneId } from "@/lib/paneIds";
 import { closeBusyPaneConfirm, closeLastPaneInSessionConfirm } from "@/lib/confirmStrings";
 import { pickAndCreateSession } from "@/lib/sessions/sessionEntryFlows";
-import { pickFolder, pickMdFile } from "@/lib/dialogClient";
+import { pickFolder, pickEditorFile } from "@/lib/dialogClient";
 import { isPtyBusy } from "@/terminals/ptyClient";
 import { shouldSkipShortcut } from "@/hooks/shortcutTarget";
 
@@ -196,11 +196,11 @@ function toggleMdMode(): boolean {
   return true;
 }
 
-// Ctrl+O — open a .md file as an MD Editor tab via the native OS picker
-// (matches the MD Editor's "Open file" button). Returns true synchronously to
-// consume the keystroke; the picker + open happen async.
+// Ctrl+O — open any file as an Editor tab via the native OS picker (matches
+// the Editor's "Open file" button). Returns true synchronously to consume the
+// keystroke; the picker + open happen async.
 function openMdFromPicker(): boolean {
-  void pickMdFile()
+  void pickEditorFile()
     .then((path) => {
       if (path) return useMdStore.getState().openMdTab(path);
       return undefined;

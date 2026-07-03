@@ -17,15 +17,12 @@ export async function pickFolder(): Promise<string | null> {
   return selected;
 }
 
-/** Show the OS file picker filtered to Markdown files. Returns the selected
- *  absolute path, or `null` if the user cancelled. Used by the MD Editor's
- *  "Open file" button — a friendlier path than typing one into Ctrl+O. */
-export async function pickMdFile(): Promise<string | null> {
-  const selected = await open({
-    directory: false,
-    multiple: false,
-    filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx", "txt"] }],
-  });
+/** Show the OS file picker for ANY file. Returns the selected absolute path,
+ *  or `null` if the user cancelled. Used by the Editor's "Open file" button and
+ *  Ctrl+O — the Editor handles any text/code file now (Plan 010), so no
+ *  extension filter is applied (binary/oversized guards run on open instead). */
+export async function pickEditorFile(): Promise<string | null> {
+  const selected = await open({ directory: false, multiple: false });
   if (selected === null) return null;
   if (Array.isArray(selected)) return selected[0] ?? null;
   return selected;

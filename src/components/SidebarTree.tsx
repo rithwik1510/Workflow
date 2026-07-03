@@ -40,26 +40,31 @@ export function SidebarTree({ path, depth }: Props) {
         .map((entry) => {
           const isExpanded = expanded.has(entry.path);
           const dimmed = entry.is_dir && COLLAPSED_DIRS.has(entry.name) && !isExpanded;
+          const isMd = entry.name.endsWith(".md");
           const onClick = () => {
             if (entry.is_dir) {
               toggleExpanded(entry.path);
-            } else if (entry.name.endsWith(".md")) {
+            } else if (isMd) {
+              // Markdown single-click → Quick Viewer glance.
               void openMdInQuickViewer(entry.path).catch((err) => {
                 console.error("openMdInQuickViewer failed", err);
               });
+            } else {
+              // Code/text single-click → Editor tab (Plan 010).
+              void openMdTab(entry.path).catch((err) => {
+                console.error("openMdTab failed", err);
+              });
             }
           };
-          // Right-click on a .md row → context menu with "Open in Editor".
-          // Single-click opens the Quick Viewer (glance); explicit intent to
-          // open in MD Editor Full View comes via right-click — matches OS
-          // conventions and the discoverability gap left by the missing top
-          // bar (Weekend 4).
-          const onContextMenu = entry.is_dir || !entry.name.endsWith(".md")
+          // Right-click on a file → context menu. Markdown offers Editor +
+          // Quick Viewer; other files offer Editor (single-click already opens
+          // it, but the menu keeps the affordance discoverable).
+          const onContextMenu = entry.is_dir
             ? undefined
             : (e: ReactMouseEvent<HTMLDivElement>) => {
                 e.preventDefault();
                 e.stopPropagation();
-                useContextMenuStore.getState().openMenu(e.clientX, e.clientY, [
+                const items = [
                   {
                     label: "Open in Editor",
                     onClick: () => {
@@ -68,15 +73,18 @@ export function SidebarTree({ path, depth }: Props) {
                       });
                     },
                   },
-                  {
+                ];
+                if (isMd) {
+                  items.push({
                     label: "Open in Quick Viewer",
                     onClick: () => {
                       void openMdInQuickViewer(entry.path).catch((err) => {
                         console.error("openMdInQuickViewer failed", err);
                       });
                     },
-                  },
-                ]);
+                  });
+                }
+                useContextMenuStore.getState().openMenu(e.clientX, e.clientY, items);
               };
           // Files can be dragged onto a terminal pane to paste their path into
           // the agent (drag-drop file attach). We use a manual pointer-drag, NOT

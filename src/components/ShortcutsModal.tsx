@@ -50,20 +50,20 @@ const CATALOG: ShortcutGroup[] = [
     name: "Surfaces",
     rows: [
       { label: "Toggle Sidebar", keys: ["Ctrl", "B"] },
-      { label: "Toggle MD Editor Full View", keys: ["Ctrl", "E"] },
+      { label: "Toggle Editor Full View", keys: ["Ctrl", "E"] },
       { label: "Toggle MD Quick Viewer", keys: ["Ctrl", "Shift", "M"] },
-      { label: "Open .md file", keys: ["Ctrl", "O"] },
+      { label: "Open file", keys: ["Ctrl", "O"] },
       { label: "Open Folder (workspace)", keys: ["Ctrl", "K", "Ctrl", "O"] },
       { label: "Show keyboard shortcuts", keys: ["Ctrl", "?"] },
     ],
   },
   {
-    name: "MD Editor",
+    name: "Editor",
     rows: [
       { label: "Save", keys: ["Ctrl", "S"] },
-      { label: "Close active MD tab", keys: ["Ctrl", "W"] },
-      { label: "Cycle MD Editor tabs", keys: ["Ctrl", "Tab"] },
-      { label: "Cycle MD Editor tabs backward", keys: ["Ctrl", "Shift", "Tab"] },
+      { label: "Close active tab", keys: ["Ctrl", "W"] },
+      { label: "Cycle Editor tabs", keys: ["Ctrl", "Tab"] },
+      { label: "Cycle Editor tabs backward", keys: ["Ctrl", "Shift", "Tab"] },
     ],
   },
 ];

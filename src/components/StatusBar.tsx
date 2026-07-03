@@ -60,7 +60,7 @@ export function StatusBar() {
       // shape matches the spec; v0.2 wires selection state.
       left = `${name} · Ln —, Col —`;
     } else {
-      left = "MD Editor";
+      left = "Editor";
     }
   } else if (focusedSurface === "quick-viewer") {
     left = qvPath ? shortName(qvPath) : "Quick Viewer";

@@ -117,7 +117,7 @@ describe("TopBar — click handlers", () => {
 
   it("clicking the MD Editor toggle (when off) calls setMdEditorMode with \"full\"", () => {
     const { getByLabelText } = render(<TopBar />);
-    fireEvent.click(getByLabelText("Toggle Markdown editor"));
+    fireEvent.click(getByLabelText("Toggle editor"));
     expect(mocks.setMdEditorModeMock).toHaveBeenCalledTimes(1);
     expect(mocks.setMdEditorModeMock).toHaveBeenCalledWith("full");
   });

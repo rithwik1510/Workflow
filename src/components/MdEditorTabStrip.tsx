@@ -16,7 +16,7 @@ export function MdEditorTabStrip() {
   };
 
   return (
-    <div className={styles.strip} role="tablist" aria-label="Open Markdown files">
+    <div className={styles.strip} role="tablist" aria-label="Open files">
       {tabs.map((t) => {
         const fileName = t.path.split(/[/\\]/).pop() ?? t.path;
         const isActive = t.id === activeTabId;
