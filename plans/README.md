@@ -23,6 +23,8 @@ non-interactive rule.
 | 004 | Scope fs commands + localhost-only preview frames | P2 | L | 001 | TODO |
 | 005 | Atomic writes for user files and config | P2 | S | — (land after 004 if both in flight) | TODO |
 | 008 | Exact agent-state detection via agent hooks (pane-tagged) | P0 (product) | M | — (005's atomic-write pattern reused for settings.json) | APPROVED — operator-directed 2026-07-02 (not from the 2026-06-12 audit); design locked 2026-07-02 (blocked = hollow accent ring, agent glyphs, roll-ups); spike gate PASSED 2026-07-02; IMPLEMENTED 2026-07-02 on worktree branch `worktree-agent-a5b554edff1026bb4` (7 commits incl. review-pass fixes: your-move view-acknowledgment + permission output-exit; 453 vitest + 55 cargo green, clippy/fmt clean); awaiting operator GUI smoke (live Notification kinds, settings toggle against real ~/.claude) & merge |
+| 009 | Agent session resume (banner + opt-in auto-resume) | P0 (product) | M | 008 merged (identity, sessionId, spool events); 006's readiness-gated revive for the auto path | APPROVED — operator-directed 2026-07-02; design locked (banner default for all + auto-resume setting for power users; pre-fill variant dropped). TODO |
+| 010 | Code editor in split view → git diff tab (Output layer) | P0 (product) | L | Phase A: none (extends mdStore/editor). Phase B: Phase A; reuses 006 git poller; CREATE_NO_WINDOW on all git spawns | APPROVED — operator-directed 2026-07-02; strict A→B ordering (editor first, Diff tab second); diff is per-REPO derived from pane cwds (repo dropdown when a session spans several). TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale).
