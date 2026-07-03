@@ -24,6 +24,7 @@ import {
   getOrCreateTerminal,
   resetMouseModes,
 } from "@/terminals/registry";
+import { PaneResumeBanner } from "@/components/PaneResumeBanner";
 import { registerOscHandlers } from "@/sessions/oscNotifications";
 import { registerClipboardOsc } from "@/sessions/oscClipboard";
 import { registerCommandTracking } from "@/sessions/commandTracker";
@@ -200,6 +201,9 @@ function TerminalPaneImpl({ paneId }: Props) {
       }}
     >
       <div ref={hostRef} style={{ width: "100%", height: "100%" }} />
+      {/* Resume affordance — overlays the top of the pane on restore; never
+          shifts the xterm grid (Plan 009). */}
+      <PaneResumeBanner paneId={paneId} />
       {isDropTarget && (
         <div
           aria-hidden="true"

@@ -21,6 +21,7 @@ import {
   uninstallClaudeHooks,
 } from "@/lib/claudeHooksClient";
 import { useAgentStore } from "@/store/agentStore";
+import { usePaneResumeStore } from "@/store/paneResumeStore";
 import { useToastStore } from "@/store/toastStore";
 import { useMdStore } from "@/store/mdStore";
 import { detectShells, shellLabel, shellToConfigId } from "@/lib/shellsClient";
@@ -70,6 +71,12 @@ export function SettingsModal() {
   const [hooksInstalled, setHooksInstalled] = useState<boolean | null>(null);
   const [hooksBusy, setHooksBusy] = useState(false);
   const sawSessionStart = useAgentStore((s) => s.sawSessionStart);
+
+  // Auto-resume preference (Plan 009). Lives in paneResumeStore, not
+  // settingsStore/config.toml — it's a behavioural preference (like the
+  // sessions store's reopenLastSession), not a config.toml key.
+  const autoResume = usePaneResumeStore((s) => s.autoResumeOnRestore);
+  const setAutoResume = usePaneResumeStore((s) => s.setAutoResumeOnRestore);
   useEffect(() => {
     if (!open) return;
     void claudeHooksStatus()
@@ -281,6 +288,17 @@ export function SettingsModal() {
                       your Claude Code version may not support hooks.
                     </p>
                   ))}
+                <SettingRow
+                  label="Auto-resume agents on restore"
+                  description="When Lume reopens, automatically re-run the resume command for Claude and Codex panes that were running at exit. Off by default — instead a slim banner lets you resume each pane by hand."
+                  control={
+                    <Toggle
+                      ariaLabel="Auto-resume agents on restore"
+                      checked={autoResume}
+                      onChange={setAutoResume}
+                    />
+                  }
+                />
               </>
             )}
           </div>
