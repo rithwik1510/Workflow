@@ -25,6 +25,7 @@ import { InlineRename } from "@/components/InlineRename";
 import { IconChevron, IconPlus } from "@/components/icons";
 import { useContextMenuStore } from "@/store/contextMenuStore";
 import { useConfirmStore } from "@/store/confirmStore";
+import { useAttemptPopoverStore } from "@/store/attemptPopoverStore";
 import { revealInExplorer } from "@/lib/revealInExplorer";
 
 interface Props {
@@ -77,6 +78,13 @@ export function SessionGroup({ group }: Props) {
     e.stopPropagation();
     useContextMenuStore.getState().openMenu(e.clientX, e.clientY, [
       { label: "Rename group", onClick: () => setRenaming(true) },
+      // Fork this project into an isolated worktree (Plan 013). The popover
+      // resolves the repo root from the group's folder.
+      {
+        label: "New attempt…",
+        onClick: () =>
+          useAttemptPopoverStore.getState().show(e.clientX, e.clientY, group.folderPath),
+      },
       { label: "Reveal in Explorer", onClick: () => void revealInExplorer(group.folderPath) },
       { label: group.collapsed ? "Expand" : "Collapse", onClick: () => toggle(group.folderPath) },
       {

@@ -34,6 +34,7 @@ import { SessionsSidebar } from "@/components/SessionsSidebar";
 import { SettingsModal } from "@/components/SettingsModal";
 import { ShortcutsModal } from "@/components/ShortcutsModal";
 import { SplitMenu } from "@/components/SplitMenu";
+import { NewAttemptPopover } from "@/components/NewAttemptPopover";
 import { StatusBar } from "@/components/StatusBar";
 import { Toaster } from "@/components/Toaster";
 import { TopBar } from "@/components/TopBar";
@@ -50,6 +51,7 @@ import { usePreviewStore } from "@/store/previewStore";
 import { paneLaunchSpec, useSessionsStore } from "@/store/sessionsStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePaneResumeStore } from "@/store/paneResumeStore";
+import { useAttemptStore, reconcileAttempts } from "@/store/attemptStore";
 import { useSidebarStore } from "@/store/sidebarStore";
 import { applyXtermFontFamilyToAll, applyXtermThemeToAll } from "@/terminals/registry";
 import { installPtyOrchestrator } from "@/terminals/orchestrator";
@@ -266,6 +268,26 @@ export default function App() {
     };
   }, []);
 
+  // Attempt reconcile (Plan 013): once the attempt store has loaded, ask git for
+  // the real worktree list per repo and drop records whose folder is gone (user
+  // deleted it outside Lume), toasting once each. Fully best-effort — it must
+  // never block or crash boot, so failures degrade silently inside the helper.
+  useEffect(() => {
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) void reconcileAttempts();
+    };
+    if (useAttemptStore.persist.hasHydrated()) {
+      run();
+      return;
+    }
+    const unsub = useAttemptStore.persist.onFinishHydration(run);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+
   // Update check — runs once at boot in release builds only.
   // Dev builds have no updater endpoint, so we guard on import.meta.env.PROD
   // to avoid noisy network errors during development.
@@ -406,6 +428,7 @@ export default function App() {
       <Toaster />
       <ConfirmDialog />
       <SplitMenu />
+      <NewAttemptPopover />
       <ShortcutsModal />
       <SettingsModal />
     </div>

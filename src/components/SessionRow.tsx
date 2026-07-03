@@ -18,6 +18,7 @@ import {
   agentLabel,
 } from "@/sessions/sessionSignal";
 import { revealInExplorer } from "@/lib/revealInExplorer";
+import { useAttemptPopoverStore } from "@/store/attemptPopoverStore";
 import { beginInternalSessionDrag } from "@/lib/internalSessionDrag";
 import { InlineRename } from "@/components/InlineRename";
 import { SignalIndicator, AgentGlyph } from "@/components/SignalIndicator";
@@ -116,6 +117,13 @@ export function SessionRow({ session }: Props) {
     e.stopPropagation();
     useContextMenuStore.getState().openMenu(e.clientX, e.clientY, [
       { label: "Rename", onClick: () => setRenaming(true) },
+      // Fork this session's repo into an isolated worktree (Plan 013). The
+      // popover resolves the repo root from the folder itself.
+      {
+        label: "New attempt…",
+        onClick: () =>
+          useAttemptPopoverStore.getState().show(e.clientX, e.clientY, session.folderPath),
+      },
       { label: "Reveal in Explorer", onClick: () => void revealInExplorer(session.folderPath) },
       // Only meaningful when this session is half of a durable split pair.
       ...(grouped ? [{ label: "Ungroup split", onClick: () => ungroup(session.id) }] : []),

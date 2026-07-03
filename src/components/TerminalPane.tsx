@@ -25,6 +25,7 @@ import {
   resetMouseModes,
 } from "@/terminals/registry";
 import { PaneResumeBanner } from "@/components/PaneResumeBanner";
+import { AttemptHintChip } from "@/components/AttemptHintChip";
 import { registerOscHandlers } from "@/sessions/oscNotifications";
 import { registerClipboardOsc } from "@/sessions/oscClipboard";
 import { registerCommandTracking } from "@/sessions/commandTracker";
@@ -204,6 +205,9 @@ function TerminalPaneImpl({ paneId }: Props) {
       {/* Resume affordance — overlays the top of the pane on restore; never
           shifts the xterm grid (Plan 009). */}
       <PaneResumeBanner paneId={paneId} />
+      {/* Fresh-worktree install reminder — one-time overlay chip for attempt
+          sessions (Plan 013). Same overlay discipline as the resume banner. */}
+      <AttemptHintChip paneId={paneId} />
       {isDropTarget && (
         <div
           aria-hidden="true"

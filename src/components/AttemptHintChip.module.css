@@ -1,0 +1,78 @@
+/* AttemptHintChip — the one-time "fresh worktree — run your install" chip in an
+ * attempt session's pane (Plan 013). Mirrors PaneResumeBanner: an absolutely
+ * positioned OVERLAY (never shifts the xterm grid) that slides down + fades in
+ * via the usePresence data-state pattern. The app-wide prefers-reduced-motion
+ * rule (theme.css) neutralises the transition and usePresence short-circuits
+ * mount/unmount, so no reduced-motion handling is needed here.
+ *
+ * Unlike the resume chip, the copy is a full sentence, so the label WRAPS rather
+ * than truncating (the reminder must stay readable). It's informational, not
+ * urgent — no accent; both actions are neutral.
+ *
+ * GOTCHA (documented app-wide): an undefined custom property invalidates the
+ * whole declaration, so every var() carries a literal fallback. */
+
+.chip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 4; /* above the drop-target overlay (zIndex 3) in TerminalPane */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 24px));
+  padding: 6px 8px 6px 12px;
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.chip[data-state="closed"] {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.45;
+  color: var(--fg-0, #e6e6e6);
+}
+
+.actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--fg-1, #9a9a9a);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  padding: 3px 9px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.btn:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+}
