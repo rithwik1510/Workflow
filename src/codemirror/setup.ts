@@ -22,7 +22,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 
-import { markdownExtensions } from "@/codemirror/markdownExtensions";
+import { languageCompartment } from "@/codemirror/languages";
 import { lumeTheme } from "@/codemirror/theme";
 
 export interface BuildEditorOptions {
@@ -55,7 +55,9 @@ export function buildEditor(opts: BuildEditorOptions): EditorView {
       ...defaultKeymap,
       ...historyKeymap,
     ]),
-    ...markdownExtensions(),
+    // Empty until MdEditor resolves the file's grammar (lazy — see
+    // languages.ts) and reconfigures this compartment in place.
+    languageCompartment.of([]),
     lumeTheme,
     EditorState.readOnly.of(!!opts.readOnly),
   ];
