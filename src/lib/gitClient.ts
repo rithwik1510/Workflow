@@ -55,3 +55,52 @@ export function gitFileDiff(
 ): Promise<FileDiff> {
   return invoke<FileDiff>("git_file_diff", { repo, path, oldPath });
 }
+
+// --- Attempt worktrees (Plan 013 Phase A) -----------------------------------
+
+/** A branch offered as a fork base. Mirrors the Rust `BranchInfo`. */
+export interface BranchInfo {
+  /** Short name: `main` for a local, `origin/main` for a remote. */
+  name: string;
+  /** True for the currently checked-out branch. */
+  isCurrent: boolean;
+  /** True for a remote-tracking branch (rendered under the locals). */
+  isRemote: boolean;
+}
+
+/** One worktree attached to a repo. Mirrors the Rust `WorktreeEntry`. */
+export interface WorktreeEntry {
+  path: string;
+  /** Short branch name; null for a detached worktree. */
+  branch: string | null;
+}
+
+/** Local + remote branches to offer as fork bases (locals first). Never
+ *  rejects — returns [] on any git failure, and the popover shows an error. */
+export function gitListBranches(repo: string): Promise<BranchInfo[]> {
+  return invoke<BranchInfo[]>("git_list_branches", { repo });
+}
+
+/** The repo's default branch (origin/HEAD → local main → master → current), or
+ *  null. Preselects the base dropdown. */
+export function gitDefaultBranch(repo: string): Promise<string | null> {
+  return invoke<string | null>("git_default_branch", { repo });
+}
+
+/** Fork `base` into a new worktree at `path` on new branch `branch`. Rejects
+ *  with an AppError whose `reason` is git's OWN stderr, shown verbatim in the
+ *  popover — the one mutating git call in the app. */
+export function gitWorktreeAdd(
+  repo: string,
+  path: string,
+  branch: string,
+  base: string
+): Promise<void> {
+  return invoke<void>("git_worktree_add", { repo, path, branch, base });
+}
+
+/** Every worktree attached to `repo` (main checkout + attempts). Used at boot
+ *  to reconcile attemptStore against reality. Never rejects — [] on failure. */
+export function gitWorktreeList(repo: string): Promise<WorktreeEntry[]> {
+  return invoke<WorktreeEntry[]>("git_worktree_list", { repo });
+}
