@@ -20,6 +20,12 @@ use crate::error::{AppError, AppResult};
 /// file is almost certainly generated/data, not something you hand-edit.
 pub const EDITOR_SIZE_CAP: u64 = 1_572_864; // 1.5 * 1024 * 1024
 
+/// Files above THIS size are refused outright (`refused`, toast) — never read.
+/// The read-only band (1.5–10 MB) still loads into CodeMirror; past 10 MB even
+/// a read-only buffer would ship tens of MB across IPC into the webview and
+/// freeze it. Nothing hand-reviewable lives above 10 MB of text.
+pub const EDITOR_REFUSE_CAP: u64 = 10 * 1024 * 1024;
+
 /// Bytes sniffed for a NUL to classify a file as binary. A NUL is valid UTF-8
 /// (U+0000), so `read_to_string` would happily load a binary blob — we must
 /// sniff the raw bytes ourselves.
@@ -130,6 +136,8 @@ pub struct EditorFile {
     pub size: u64,
     pub too_large: bool,
     pub binary: bool,
+    /// Over EDITOR_REFUSE_CAP — content was never read; frontend toasts.
+    pub refused: bool,
 }
 
 #[tauri::command]
@@ -139,6 +147,16 @@ pub fn read_editor_file(path: String) -> AppResult<EditorFile> {
     })?;
     let size = meta.len();
     let too_large = size > EDITOR_SIZE_CAP;
+    if size > EDITOR_REFUSE_CAP {
+        // Refuse before opening: don't pay for a read we'll never render.
+        return Ok(EditorFile {
+            content: String::new(),
+            size,
+            too_large,
+            binary: false,
+            refused: true,
+        });
+    }
 
     let mut file = fs::File::open(&path).map_err(|e| AppError::Internal {
         reason: format!("open {}: {}", path, e),
@@ -154,6 +172,7 @@ pub fn read_editor_file(path: String) -> AppResult<EditorFile> {
             size,
             too_large,
             binary: true,
+            refused: false,
         });
     }
 
@@ -172,6 +191,7 @@ pub fn read_editor_file(path: String) -> AppResult<EditorFile> {
         size,
         too_large,
         binary: false,
+        refused: false,
     })
 }
 
@@ -284,6 +304,22 @@ mod tests {
         let f = read_editor_file(path).unwrap();
         assert!(f.too_large);
         assert!(!f.binary);
+        assert!(!f.refused);
         assert_eq!(f.content.len(), big.len());
+    }
+
+    #[test]
+    fn read_editor_file_refuses_huge_without_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.log").to_string_lossy().to_string();
+        // Just over the refuse cap: content must come back EMPTY (never read),
+        // not merely read-only — shipping it to the webview is the freeze risk.
+        let huge = "b".repeat((EDITOR_REFUSE_CAP + 16) as usize);
+        fs::write(&path, &huge).unwrap();
+        let f = read_editor_file(path).unwrap();
+        assert!(f.refused);
+        assert!(f.too_large);
+        assert!(!f.binary);
+        assert_eq!(f.content, "");
     }
 }

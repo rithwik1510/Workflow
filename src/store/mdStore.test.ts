@@ -29,6 +29,7 @@ vi.mock("@/lib/fsClient", () => ({
     size: 16,
     tooLarge: false,
     binary: false,
+    refused: false,
   })),
   writeTextFile: vi.fn(async () => undefined),
 }));
@@ -56,11 +57,12 @@ const mockedFind = vi.mocked(fileSearch.findFileByName);
 const mockedWatch = vi.mocked(editorWatch.watchEditorFile);
 const mockedUnwatch = vi.mocked(editorWatch.unwatchEditorFile);
 
-const editorProbe = (content: string, over = false, binary = false) => ({
+const editorProbe = (content: string, over = false, binary = false, refused = false) => ({
   content,
   size: content.length,
   tooLarge: over,
   binary,
+  refused,
 });
 
 describe("mdStore — Quick Viewer", () => {
@@ -328,6 +330,16 @@ describe("mdStore — open guards + kind (Plan 010 §1/§2)", () => {
     const toasts = useToastStore.getState().toasts;
     expect(toasts.length).toBe(1);
     expect(toasts[0].message).toContain("logo.png");
+  });
+
+  it("refuses a huge (>10 MB) file with a toast and opens no tab", async () => {
+    // `refused` comes back with empty content — the file was never read.
+    mockedReadEditor.mockImplementationOnce(async () => editorProbe("", true, false, true));
+    await useMdStore.getState().openMdTab("/proj/giant.log");
+    expect(useMdStore.getState().tabs.length).toBe(0);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.length).toBe(1);
+    expect(toasts[0].message).toContain("too large");
   });
 
   it("opens an oversized file read-only and ignores edits", async () => {

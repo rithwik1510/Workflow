@@ -196,12 +196,16 @@ export const useMdStore = create<MdStoreState>()(
           });
           return;
         }
-        // Probe: refuse binaries, open oversized files read-only (Plan 010 §2).
+        // Probe: refuse binaries and huge files, open oversized (1.5–10 MB)
+        // files read-only (Plan 010 §2).
         const probe = await readEditorFile(path);
-        if (probe.binary) {
+        if (probe.binary || probe.refused) {
+          const name = path.split(/[/\\]/).pop() ?? path;
           useToastStore.getState().push({
             severity: "warn",
-            message: `Can't open ${path.split(/[/\\]/).pop() ?? path} — looks like a binary file`,
+            message: probe.binary
+              ? `Can't open ${name} — looks like a binary file`
+              : `Can't open ${name} — too large to edit (over 10 MB)`,
           });
           return;
         }

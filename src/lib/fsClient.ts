@@ -10,12 +10,14 @@ export function readTextFile(path: string): Promise<string> {
 }
 
 /** Probe + read a file for the Editor (Plan 010 §2). `binary` files should be
- *  refused with a toast; `tooLarge` files open read-only with a banner. */
+ *  refused with a toast; `tooLarge` files open read-only with a banner;
+ *  `refused` files (> 10 MB) were never read at all — toast and move on. */
 export interface EditorFile {
   content: string;
   size: number;
   tooLarge: boolean;
   binary: boolean;
+  refused: boolean;
 }
 
 export function readEditorFile(path: string): Promise<EditorFile> {
