@@ -16,3 +16,16 @@ export function writeTextFile(path: string, contents: string): Promise<void> {
 export function homeDir(): Promise<string> {
   return invoke<string>("home_dir");
 }
+
+/** True if `path` is a readable directory. There's no dedicated exists command,
+ *  so we lean on list_dir (which canonicalizes + read_dir's the path and rejects
+ *  if it's missing or not a directory). Used at boot to gate agent auto-resume
+ *  on the pane's recorded cwd still existing — a bounded, once-per-pane check. */
+export async function dirExists(path: string): Promise<boolean> {
+  try {
+    await listDir(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
