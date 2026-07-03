@@ -19,6 +19,7 @@ import { useEffect } from "react";
 
 import { useLayoutStore } from "@/store/layoutStore";
 import { useMdStore } from "@/store/mdStore";
+import { useDiffStore } from "@/store/diffStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { useSessionsStore, groupedSessions } from "@/store/sessionsStore";
 import { useSidebarStore } from "@/store/sidebarStore";
@@ -189,6 +190,18 @@ function togglePreview(): boolean {
   return true;
 }
 
+// Ctrl+Shift+D — toggle the git Diff tab (Plan 010 Phase B). NOT Ctrl+D: that
+// is EOF in a terminal and our capture-phase listener does not skip .xterm
+// (shortcutTarget), so a plain Ctrl+D binding would swallow EOF from the shell.
+// Ctrl+Shift+D joins the other surface toggles (Quick Viewer Ctrl+Shift+M,
+// Preview Ctrl+Shift+L, file drawer Ctrl+Shift+E). openDiff derives the repos.
+function toggleDiff(): boolean {
+  const d = useDiffStore.getState();
+  if (d.open) d.closeDiff();
+  else void d.openDiff();
+  return true;
+}
+
 // Ctrl+E — toggle MD Editor Full View. Fires regardless of current mode.
 function toggleMdMode(): boolean {
   const cur = useMdStore.getState().mdEditorMode;
@@ -332,6 +345,13 @@ const SHORTCUTS: Shortcut[] = [
     match: (e) =>
       e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.key === "L" || e.key === "l"),
     run: () => togglePreview(),
+  },
+
+  // Toggle the git Diff tab — Ctrl+Shift+D (see toggleDiff for why not Ctrl+D).
+  {
+    match: (e) =>
+      e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.key === "D" || e.key === "d"),
+    run: () => toggleDiff(),
   },
 
   // Show keyboard shortcuts — Ctrl+? (DESIGN.md §7). On most keyboards

@@ -10,6 +10,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSessionsStore } from "@/store/sessionsStore";
+import { useDiffStore } from "@/store/diffStore";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -41,6 +42,12 @@ async function runCycle(): Promise<void> {
     const state = useSessionsStore.getState();
     for (const s of Object.values(state.sessions)) {
       if (s.status === "active") await pollOne(s.id); // serial, one git at a time
+    }
+    // Piggyback the Diff tab's changed-file refresh on this single-flight cycle
+    // (Plan 010 Phase B §5) — no second polling system. Skipped entirely while
+    // the surface is closed; quiet so it never yanks the selection or spinner.
+    if (useDiffStore.getState().open) {
+      await useDiffStore.getState().refresh({ quiet: true });
     }
   } finally {
     cycleInFlight = false;
