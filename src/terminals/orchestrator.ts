@@ -38,8 +38,12 @@ import { openPty, writePty, killPty, isAppError } from "@/terminals/ptyClient";
 import { detectShells, configIdMatchesShell } from "@/lib/shellsClient";
 import { noteOutput, forgetPane, disposeAttentionTracker } from "@/sessions/attentionTracker";
 import { forgetPaneAgent, noteCommandAgent } from "@/sessions/agentTracker";
+import { agentFromCommand } from "@/sessions/agentIdentity";
 import { onCommandEvent, paneCommandState } from "@/sessions/commandTracker";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePaneResumeStore, type ResumeRecord } from "@/store/paneResumeStore";
+import { resumeCommandFor, isAutoResumable, shouldAutoResume } from "@/sessions/agentResume";
+import { dirExists } from "@/lib/fsClient";
 import { formatAppError, type PaneId, type PtyEvent, type Shell } from "@/types";
 
 /**
@@ -151,11 +155,26 @@ export async function spawnPane(
       const line = capture.feed(data);
       if (line !== null) {
         if (line !== "") {
-          const sid = findSessionForPane(useSessionsStore.getState(), paneId)?.id;
-          if (sid) useSessionsStore.getState().setPaneStartupCommand(sid, paneId, line);
+          const state = useSessionsStore.getState();
+          const session = findSessionForPane(state, paneId);
+          if (session) state.setPaneStartupCommand(session.id, paneId, line);
           // Glyph-only agent identity from the launch line (Plan 008). No-op
           // unless the line names a known agent AND the pane has no entry yet.
           noteCommandAgent(paneId, line);
+          // Plan 009 resume memory: if the line launches a known agent, remember
+          // it (verbatim) so a restart can offer [Resume]. If it launches
+          // something else, the user has moved on — drop any stale resume record.
+          const agent = agentFromCommand(line);
+          const resume = usePaneResumeStore.getState();
+          if (agent) {
+            resume.recordLaunchCommand(paneId, {
+              agent,
+              launchCommand: line,
+              cwd: session?.folderPath ?? null,
+            });
+          } else {
+            resume.clearRecord(paneId);
+          }
         }
         capture = makeCommandCapture(); // re-arm for the next prompt line
       }
@@ -253,6 +272,11 @@ async function killPane(paneId: PaneId): Promise<void> {
   usePtyStore.getState().removePane(paneId);
   forgetPane(paneId);
   forgetPaneAgent(paneId);
+  // Plan 009: the USER tore this pane down (closed the pane / stopped the
+  // session) — drop its resume memory. This path is never reached on app
+  // shutdown (the orchestrator's disposer doesn't kill panes), which is exactly
+  // the case the resume store exists to preserve.
+  usePaneResumeStore.getState().clearRecord(paneId);
 }
 
 // ---------------------------------------------------------------------------
@@ -300,12 +324,46 @@ function cancelStartupAutorun(paneId: PaneId): void {
  * default if none recorded), plus its remembered first command, re-run once
  * the shell reports prompt-ready (see autorun block above). Used both for the
  * install-time sweep and for live session activation (feature A — restore).
+ *
+ * Plan 009 overlay: if this pane has a live resume record (an agent was running
+ * here at last exit), the raw launch command is NOT auto-run — the resume banner
+ * (TerminalPane) offers [Resume] / [Just shell] instead. When the auto-resume
+ * setting is ON and the agent is resumable and its cwd still exists, the resume
+ * command is armed through the SAME readiness gate (armStartupAutorun).
  */
 function reviveSpawn(paneId: PaneId): void {
   const spec = paneLaunchSpec(useSessionsStore.getState(), paneId);
+  const record = usePaneResumeStore.getState().records[paneId];
+  if (record?.aliveAtShutdown) {
+    // An agent pane. The banner owns the launch on restore; never blind-replay
+    // the raw `claude`/`codex` line (a fresh start would drop the conversation).
+    if (usePaneResumeStore.getState().autoResumeOnRestore && isAutoResumable(record.agent)) {
+      void maybeArmAutoResume(paneId, record);
+    }
+    void spawnPane(paneId, spec?.shell ?? defaultShell());
+    return;
+  }
   const command = spec?.startupCommand?.trim();
   if (command) armStartupAutorun(paneId, command);
   void spawnPane(paneId, spec?.shell ?? defaultShell());
+}
+
+/**
+ * Auto-resume gate: verify the recorded cwd still exists (skip if it doesn't —
+ * the banner shows a "folder missing" hint), then arm the resume command on the
+ * pane through the readiness-gated autorun. The fs check is fast and the shell's
+ * prompt-ready mark lands well after it, so arming here still wins the race.
+ */
+async function maybeArmAutoResume(paneId: PaneId, record: ResumeRecord): Promise<void> {
+  // A missing cwd disqualifies auto-resume (the banner shows a "folder missing"
+  // hint instead). An empty cwd is treated as present (nothing to verify).
+  const cwdExists = record.cwd ? await dirExists(record.cwd) : true;
+  // Re-read the record + setting AFTER the async gap — the user may have clicked
+  // Just shell, or torn the pane down, while we awaited the fs check.
+  const store = usePaneResumeStore.getState();
+  const live = store.records[paneId];
+  if (!shouldAutoResume(live, { autoResumeOn: store.autoResumeOnRestore, cwdExists })) return;
+  armStartupAutorun(paneId, resumeCommandFor(live!));
 }
 
 /**
