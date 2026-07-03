@@ -1,107 +1,148 @@
-# Plan 011: Attention escape — the dot leaves the window (Loop 1)
+# Plan 011: Attention escape — the dot leaves the window (Beta Loop 1)
 
 ## Status
 
-PROPOSED — drafted 2026-07-03 from operator direction ("Loop 1 and Loop 2 are
-definitely something that we want"). Design decisions below marked LOCK are to
-be confirmed with the operator before implementation. Spike gate (step 0)
-gates everything, mirroring Plan 008's discipline.
+APPROVED — design locked with the operator 2026-07-03:
+- **permission** → toast + taskbar flash + badge (the urgent one).
+- **your-move** (turn complete) → badge only; a settings toggle "Toast on
+  turn complete" (default OFF) upgrades it.
+- Master "OS notifications" toggle, default ON.
+- Heuristic signals NEVER escape (Plan 008's routing rule is law).
+Execution: spike gate first (step 0); then worktree branch per repo
+convention; Fable reviews before merge. Implement FIRST of the Beta three.
 
 ## Goal
 
-The Plan-008 signal machinery currently ends at a sidebar dot that is only
-visible while Lume is focused. The moment that matters most is when it ISN'T:
-the user is in the browser/meeting and an agent has been blocked on a
-permission prompt for minutes. Close the loop:
+Plan 008's exact signals currently end at a sidebar dot visible only while
+Lume is focused. Close the attention loop for the minimized/unfocused case:
 
-1. **OS toast** when a background/unfocused agent needs the user
-   (`✻ Claude — waiting on permission · <session>`).
-2. **Taskbar signal**: overlay badge (needs-you count) + one-shot taskbar
-   flash for permission events.
-3. **Click → context**: activating the notification (or the app) lands the
-   user on the right session.
+1. OS toast: `✻ Claude — waiting on permission · <session name>`.
+2. Taskbar: overlay badge showing the fleet needs-you count; one-shot flash
+   on a new permission block.
+3. Click → context: activating the toast (if the spike proves Windows
+   activation callbacks) focuses Lume, activates the session, focuses the
+   signaling pane. Guaranteed floor if not: flash + badge, and the sidebar
+   dot finishes the routing once the user clicks the taskbar.
 
-## Why this is reliable with what we already have
+## Reliability grounding (all existing)
 
-| Need | Already built |
-|---|---|
-| "Needs you" truth, no guessing | agentTracker class-A transitions (Plan 008): `permission`, `your-move` — deterministic hook events, never cadence guesses |
-| One ranking of urgency | `sessionSignal.ts` (`computeSessionSignal`, `rollUpSignal`) |
-| Fleet needs-you count | StatusBar roll-up already computes it (memoized) |
-| Jump-to-session | `activateSession` + (Plan zoom) `toggleZoomPane` |
+- Truth: `agentTracker` class-A transitions (hook events; no guessing).
+- Ranking/roll-up: `sessionSignal.ts` — the badge count MUST be the same
+  selector the StatusBar uses (extract, don't duplicate).
+- Jump: `activateSession` + `setFocusedPane` (+ optional pane zoom later).
 
-**The locked routing rule stands: ONLY deterministic class-A signals may
-escape the window.** Heuristic tiers (OSC 133 / cadence) stay in-window
-forever. This is the entire reason 008 exists; it is what makes Lume's pings
-trustworthy where competitors cry wolf.
+## Step 0 — SPIKE GATE (Windows 11; dev AND packaged)
 
-## Design (LOCK each with the operator)
+Throwaway branch; PASS required before real code:
+1. `tauri-plugin-notification`: toast renders while the window is unfocused
+   and while minimized. Record dev-mode behavior (WebView2 apps without
+   packaged identity sometimes can't toast — if dev can't, packaged must).
+2. Click activation: does the app receive any callback when the user clicks
+   the toast body on Windows desktop? (Plugin actions are mobile-first;
+   expect NO — then click-routing is dropped and flash+badge is the floor.
+   Document the finding in the plan file.)
+3. Badge: `window.set_overlay_icon(Some(Image))` renders a legible 16×16
+   overlay; `set_overlay_icon(None)` clears it. `request_user_attention
+   (Some(Informational))` flashes without stealing focus, and stops when
+   the user focuses Lume.
 
-- **Which signals escape** — LOCK proposal:
-  - `permission` → toast + badge + taskbar flash (blocked mid-turn = urgent).
-  - `your-move` (turn complete) → badge only, no toast by default (a settings
-    toggle "Toast on turn complete" enables it, default OFF). Rationale: with
-    4 agents, turn-complete toasts become spam; permission almost never does.
-  - Nothing else. Ever.
-- **Suppression**: no toast/flash when the Lume window is focused AND the
-  signaling session is visible (the in-window dot already covers it). Badge
-  always reflects the true count.
-- **Debounce**: one toast per pane per signal-transition (state-edge
-  triggered, not repeated); a global min-gap (e.g. 3 s) between toasts.
-- **Click behavior**: toast click → show + focus window, `activateSession`,
-  focus the signaling pane. If Windows toast activation proves unreliable in
-  the spike, fallback = flash + badge only (clicking the taskbar still lands
-  on Lume with the session dot lit).
-- **Settings** (SettingsModal → Agents): master "OS notifications" toggle
-  (default ON once hooks are installed), the your-move toast toggle.
+## Detailed design
 
-## Step 0 — SPIKE GATE (Windows 11, packaged + dev)
+### Escape decision (pure function, unit-tested exhaustively)
 
-Verify before any real code, in a throwaway branch:
-1. `tauri-plugin-notification` v2: toast shows while window unfocused/
-   minimized; behavior of click (does the app get an activation callback on
-   Windows? If not, document and drop click-routing to the fallback).
-2. Taskbar badge: Tauri v2 `set_overlay_icon` (Windows) with a count glyph;
-   `request_user_attention(Informational)` flash semantics (once vs until
-   focus).
-3. Confirm toasts work for a WebView2 app without a packaged identity (dev
-   mode) — if dev-mode toasts are unavailable, note it and test packaged.
+`src/sessions/attentionEscape.ts`:
 
-PASS = toast visible when minimized + badge/flash render. Click-activation is
-nice-to-have, not a gate.
+```
+decideEscape(input: {
+  transition: { paneId, from: AgentPhase, to: AgentPhase },
+  windowFocused: boolean,
+  sessionVisible: boolean,   // getVisibleSessionIds covers split view
+  prefs: { osNotifications: boolean; toastOnTurnComplete: boolean },
+  now: number, lastToastAt: number,
+}): { toast?: { title, body }, flash: boolean }
+```
+
+Rules:
+- Edge-triggered only: fire on ENTERING `permission` (or `your-move` with
+  the toggle), never on remaining in it, never on re-renders.
+- Suppressed entirely when `prefs.osNotifications` is off.
+- Suppressed when `windowFocused && sessionVisible` (the in-window dot
+  already covers it). Unfocused OR hidden-session → escape.
+- Global min-gap 3 s between toasts (`lastToastAt`); flash has no gap (the
+  OS coalesces flashes).
+- Toast copy: title `⏸ <Agent> needs permission` / `✓ <Agent> finished`,
+  body = session name. Reuse `agentLabel`. No prose beyond that — the copy
+  IS the design (minimal, trustworthy).
+
+The badge is NOT edge-triggered — it always mirrors the current fleet count.
+
+### Wiring
+
+- Module-scope subscription (the agentTracker visibility-ack pattern):
+  subscribe to `useAgentStore`, diff pane phases against a module-level
+  prev-map, feed transitions into `decideEscape`, act on the result.
+- Window focus: cache from `getCurrentWindow().onFocusChanged`; initialize
+  from `isFocused()`. On focus gain: clear flash state; badge recomputes
+  (it will typically drop as the user acknowledges panes).
+- Badge count selector: extract `needsYouCounts(panes, sessions)` into
+  `sessionSignal.ts`; StatusBar switches to it in the same commit (single
+  source of truth); attentionEscape subscribes and invokes
+  `set_needs_you_badge(permissionCount + yourMoveCount)` — debounced 250 ms
+  trailing (badge writes cross IPC).
+
+### Rust (`src-tauri/src/attention.rs`)
+
+- `set_needs_you_badge(count: u32)`: count == 0 → `set_overlay_icon(None)`;
+  else pick from 10 embedded PNGs (`assets/badge/1.png` … `9.png`,
+  `9plus.png`, 16×16, accent circle + white numeral, pre-rendered — no
+  runtime text rasterization). `include_bytes!` + `Image::from_bytes`
+  (enable the tauri `image-png` feature). Idempotent; missing window or
+  platform failure = silent no-op (attention must never crash the app).
+- `flash_taskbar()`: `request_user_attention(Some(Informational))`.
+- `tauri-plugin-notification` registered; capability `notification:default`.
+  Toasts are SENT FROM RUST? No — sent from TS via the plugin's JS API
+  (simpler, and the decision logic lives in TS where the state is).
+
+### Settings (new `prefsStore`)
+
+`config.toml`/settingsStore is schema-locked Rust config (deny_unknown_
+fields) — behavioral UI prefs don't belong there (precedent: Plan 009 put
+auto-resume in paneResumeStore). Create `src/store/prefsStore.ts`: a small
+persisted zustand store for UI behavior prefs. Seed it with
+`osNotifications: true`, `toastOnTurnComplete: false`. (Plan 012's paste
+pref joins it.) SettingsModal → Agents section gains two `SettingRow` +
+`Toggle` rows matching the existing rows exactly.
 
 ## Steps
 
-1. Rust: add `tauri-plugin-notification`; a tiny `attention.rs` with commands
-   `set_needs_you_badge(count)` (overlay icon, cached rendered glyphs 1–9+)
-   and `flash_taskbar()`. All UI-thread-safe, no-ops on failure.
-2. TS `src/sessions/attentionEscape.ts`: subscribes to agentStore transitions
-   (module-scope, like agentTracker's visibility subscription). Computes
-   escapes per the Design rules; talks to the notification plugin + badge
-   commands. Window-focus state via Tauri window events.
-3. Badge count = the StatusBar roll-up selector, extracted to a shared
-   selector so StatusBar and the badge can't disagree.
-4. Click routing (if spike PASSed): notification activation → focus window →
-   `activateSession(sessionId)` → focus pane.
-5. Settings rows + docs (DESIGN.md signals section, README).
+1. Spike (step 0) → record findings in this file under "Spike results".
+2. Rust `attention.rs` + badge assets + plugin registration + cargo tests
+   (badge command tolerates repeat calls / no window).
+3. `prefsStore` + Settings rows (+ vitest).
+4. `needsYouCounts` extraction into sessionSignal + StatusBar switch
+   (+ parity test).
+5. `attentionEscape.ts`: decideEscape (pure) + subscription wiring + badge
+   debounce (+ the full vitest matrix: transition × focused × visible ×
+   prefs × gap).
+6. Click routing IF spike passed activation; else document the floor.
+7. Docs: DESIGN.md signals section, README, CHANGELOG.
 
 ## Testing gates
 
-- vitest: escape-decision matrix (signal × focused × visible × settings ×
-  debounce) as a pure function; badge-count selector parity with StatusBar.
-- cargo: badge command tolerates missing window / repeated calls.
-- Manual (operator): minimize Lume, trigger a real permission prompt →
-  toast + flash + badge; approve → badge clears. Turn-complete with toggle
-  ON/OFF. Focused window → no toast.
+vitest + typecheck + build; cargo test/clippy/fmt. Manual (operator):
+minimize → real permission prompt → toast + flash + badge; approve → badge
+clears; focused+visible → no toast; toggle OFF → silence; turn-complete
+toggle ON → its toast.
 
 ## Risks
 
-- Windows toast activation callbacks are the flaky part → that's why the
-  spike, and why flash+badge is the guaranteed floor.
-- Toast fatigue → the permission-only default and state-edge debounce are
-  the product answer; the master toggle is the escape hatch.
+- Toast behavior differs dev vs packaged → spike covers both; worst case
+  the feature is packaged-only and dev logs a hint.
+- Badge overlay is Windows-only API → fine; Lume is Windows-first. The
+  attentionEscape layer is platform-agnostic, the Rust commands no-op
+  elsewhere.
 
 ## Out of scope
 
-Sounds (follow-up once toasts prove trustworthy), mobile/remote delivery,
-any escape for heuristic signals (never).
+Sounds (follow-up after toasts earn trust), remote/mobile delivery, stale-
+state re-notification ("still blocked after 5 min"), any heuristic escape.

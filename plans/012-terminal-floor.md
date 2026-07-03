@@ -2,84 +2,110 @@
 
 ## Status
 
-PROPOSED — drafted 2026-07-03. The three table-stakes items open since the
-2026-06-09 review; every beta reviewer hits them in the first ten minutes.
-Small, independent, land-one-at-a-time.
+APPROVED — 2026-07-03, no open design questions. Three independent items;
+land one at a time (separate commits, each individually revertable).
+Implement SECOND of the Beta three (after 011). Depends on 011 only for
+`prefsStore` (the paste-guard toggle lives there).
 
 ## Goal
 
-A developer can daily-drive Lume as their terminal without missing their old
-one for the basics:
+Daily-driver basics a beta reviewer checks in the first ten minutes:
 
 1. **Ctrl+F scrollback search** in the focused pane (`@xterm/addon-search`).
-2. **Clickable URLs** in output (`@xterm/addon-web-links` → OS browser).
-3. **Multiline-paste guard**: pasting text with newlines into a shell prompt
-   asks first (the classic "pasted 14 lines into bash and it ran 13 of them"
-   footgun).
+2. **Ctrl+click URLs** in output (`@xterm/addon-web-links` → OS browser).
+3. **Multiline-paste guard**: pasting text containing newlines into a
+   terminal asks first.
 
-## Why this is cheap with what we already have
+## Why cheap (all integration points already ours)
 
-- Terminals are built in ONE place (`src/terminals/registry.ts`,
-  `getOrCreateTerminal`) — addons load there, once per terminal, disposed
-  with it.
-- Paste ALREADY routes through our own Ctrl+V/Ctrl+Shift+V handler in
-  registry.ts (it bypasses the native path deliberately) — the guard is an
-  intercept in code we own, no xterm surgery.
-- Confirm dialog + settings rows + shortcut catalog all have established
-  patterns (confirmStore, SettingsModal, ShortcutsModal CATALOG).
-- The keyboard listener (capture phase) already arbitrates surface-aware
-  shortcuts — Ctrl+F routes to terminal search only when a terminal owns
-  focus (MD editor keeps CodeMirror's own find).
+- `src/terminals/registry.ts` builds every Terminal in one place — addons
+  load there per-terminal and dispose with it (extend the registry record
+  to hold the addon instances keyed by paneId).
+- Paste ALREADY flows through our own Ctrl+V/Ctrl+Shift+V handler in
+  registry.ts (native paste is deliberately bypassed) — the guard wraps
+  `term.paste(text)` in code we own.
+- confirmStore (async confirm), prefsStore (011), ShortcutsModal CATALOG,
+  and the overlay grammar (resume banner) are established patterns.
 
-## Design
+## Detailed design
 
-- **Search UI**: slim overlay bar top-right of the focused pane (input +
-  prev/next + match count + close), same overlay grammar as the resume
-  banner: absolute, never reflows the grid, presence-pattern in/out, var()
-  fallbacks, reduced-motion safe. Enter/Shift+Enter = next/prev, Esc closes
-  and returns focus to the shell. Decorations on (highlight all matches +
-  active match) — verify WebGL renderer compatibility in step 1 (the addon
-  supports decorations with the WebGL addon; if a conflict appears, fall
-  back to no-decoration find-and-scroll, still shippable).
-- **Web links**: `addon-web-links` with a custom handler → Tauri
-  opener/shell open (never navigate the webview). Ctrl+click activation
-  (plain click stays with the shell's mouse modes), hover underline.
-- **Paste guard**: in our paste path, if text contains `\n` (>1 line):
-  confirm dialog showing a preview (first ~5 lines, "+N more"), options
-  Paste / Cancel. "Paste as one line" variant NOT included in v1 (scope).
-  Setting "Warn on multiline paste" default ON. Single-line pastes never
-  prompt. Bracketed-paste-aware shells still get the guard (the danger is
-  the shell WITHOUT bracketed paste; detecting that reliably isn't possible,
-  so the guard is uniform + toggleable).
+### 1. Search (Ctrl+F)
+
+- **Addon**: one `SearchAddon` per terminal, created in registry, stored on
+  the registry entry, disposed with the terminal.
+- **UI**: `PaneSearchBar` overlay, top-right of the terminal pane (below
+  the corner cluster), same overlay rules as PaneResumeBanner: absolute
+  (never reflows the grid), presence-pattern in/out, var() fallbacks,
+  reduced-motion safe, `--font-ui`. Contents: input · match counter
+  ("3/17", from `onDidChangeResults`) · prev/next chevrons · close ×.
+- **Keys**: Ctrl+F opens (capture-phase listener, ONLY when
+  `focusedSurface === "terminal"` — the MD editor keeps CodeMirror's own
+  find); Enter = next, Shift+Enter = prev, Esc closes AND returns DOM focus
+  to the terminal. Typing in the input searches incrementally (debounced
+  ~120 ms).
+- **State**: tiny `paneSearchStore` micro-store (open + query per focused
+  pane), following the splitMenu/contextMenu micro-store precedent.
+- **Decorations**: `findNext(query, { decorations: { matchOverviewRuler,
+  activeMatchColorOverviewRuler, matchBackground, activeMatchBackground } })`
+  with LITERAL colors derived from the active xterm theme the way the
+  terminal theme mapping already derives colors (xterm needs concrete hex,
+  not CSS vars). VERIFY against the WebGL renderer first (step 1a) — the
+  addon supports it, but if artifacts appear, ship find-and-scroll without
+  decorations (still passes the floor) and note it.
+- Case-insensitive default; no regex UI in v1.
+
+### 2. Web links (Ctrl+click)
+
+- `WebLinksAddon` per terminal with a custom activation handler → open via
+  the Tauri opener (check what the app already uses for external URLs —
+  updater/download links — and reuse; add `@tauri-apps/plugin-opener` +
+  capability only if nothing exists). NEVER `window.open`/location (CSP,
+  and the webview must never navigate).
+- Activation modifier: Ctrl+click (plain click stays with the shell's own
+  mouse modes — agents/TUIs use mouse reporting). Hover shows underline
+  (addon default) + tooltip with the URL.
+- Scheme allowlist: http/https only in v1.
+
+### 3. Multiline-paste guard
+
+- In registry.ts's paste path, before `term.paste(text)`:
+  `text.replace(/\r\n/g, "\n")` — if it contains `\n` (i.e. ≥2 lines,
+  counting a trailing newline as multiline: it EXECUTES in most shells):
+  `confirmStore.confirm({...})` with a monospace preview (first 5 lines +
+  "+N more", total line count in the title: "Paste 14 lines?"). Confirm →
+  paste the ORIGINAL text unmodified; cancel → nothing reaches the pty.
+- Pref: `warnMultilinePaste` (prefsStore, default ON) + SettingsModal row
+  (Terminal section). Single-line paste never prompts, never will.
+- The MD editor / QuickViewer / inputs are untouched (different paste path).
 
 ## Steps
 
-1. `@xterm/addon-search` wiring in registry (per-terminal instance) + search
-   overlay component + Ctrl+F/Esc routing + ShortcutsModal row. Tests:
-   routing (terminal-focused only), overlay render states.
-2. `@xterm/addon-web-links` + opener handler. Test: handler invoked with the
-   URL, never `window.location`.
-3. Paste guard in the registry paste path + confirm copy + setting. Tests:
-   newline detection matrix (CRLF/LF/trailing newline/single line), setting
-   OFF bypass, cancel writes nothing to the pty.
-4. Docs: DESIGN.md §7 shortcuts, README feature bullets.
+1. (a) Search addon + WebGL verification spike-let; (b) PaneSearchBar +
+   micro-store + key routing + ShortcutsModal row ("Find in terminal",
+   Ctrl+F). Tests: routing matrix (terminal vs editor focus), overlay
+   states, incremental search debounce, Esc focus return.
+2. Web links + opener handler + capability. Test: handler receives URL and
+   calls the opener client (mocked); no webview navigation path exists.
+3. Paste guard + pref + Settings row. Tests: detection matrix (LF, CRLF,
+   trailing-newline-only, single line, empty), pref OFF bypass, cancel
+   writes nothing, confirm pastes byte-identical text.
+4. Docs: DESIGN.md §7, README, CHANGELOG.
 
 ## Testing gates
 
-vitest + typecheck + build green; no Rust changes expected. Manual: search a
-long `git log` scrollback; Ctrl+click a URL from an agent's output; paste a
-multiline snippet into PowerShell (guard) and into the MD editor (no guard —
-editor paste is not the terminal path).
+vitest + typecheck + build green (no Rust expected unless the opener plugin
+is new — then cargo gates too). Manual: search a long `git log`; Ctrl+click
+a URL an agent printed; paste a multiline snippet into PowerShell (guard)
+and into the MD editor (no guard); verify a TUI app's mouse still works
+with the links addon active.
 
 ## Risks
 
-- Search decorations × WebGL renderer: verified in step 1 with the
-  documented fallback.
-- Ctrl+F collisions: capture-phase listener must keep letting CodeMirror's
-  find win when the editor owns focus — covered by the surface-aware routing
-  test.
+- Search decorations × WebGL renderer → verified first, documented fallback.
+- Ctrl+F inside TUIs that use Ctrl+F themselves (less common than Ctrl+D
+  EOF, and search-open only steals it while the overlay is closed→opening;
+  Esc hands the key back) — acceptable; document in ShortcutsModal.
 
 ## Out of scope
 
-Regex search UI, search across scrollback of background panes, "paste as
-one line", drag-drop file-path pasting (already handled elsewhere).
+Regex search, cross-pane search, "paste as one line", link previews.
