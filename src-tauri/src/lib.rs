@@ -115,6 +115,7 @@ pub fn run() {
             crate::git::git_list_branches,
             crate::git::git_default_branch,
             crate::git::git_worktree_add,
+            crate::git::git_worktree_add_existing,
             crate::git::git_worktree_list,
             crate::git::git_repo_state,
             crate::git::git_has_remote,

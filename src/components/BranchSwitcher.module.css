@@ -1,0 +1,165 @@
+/* BranchSwitcher — the status bar's persistent branch chip + its upward
+ * picker. Chip sits inline in the bar (quiet, text-toned, hover reveals it's
+ * a control); the picker is a fixed card that opens UPWARD from the chip in
+ * the app's popover language (NewAttemptPopover / SplitMenu).
+ *
+ * GOTCHA (documented app-wide): an undefined custom property invalidates the
+ * WHOLE declaration — every var() carries a literal fallback. Reduced motion
+ * is handled by the app-wide rule + usePresence short-circuiting. */
+
+.chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  margin: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg-2, #6a6a6a);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 11.5px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.chip:hover,
+.chip[aria-expanded="true"] {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-2, #1a1a1a);
+  border-color: var(--border, #222222);
+}
+
+.card {
+  position: fixed;
+  z-index: var(--z-popover, 900);
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1, #141414);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-ui, sans-serif);
+  color: var(--fg-0, #e6e6e6);
+  overflow: hidden;
+  /* Opens UPWARD from the chip — grow from the bottom-left corner. */
+  transform-origin: bottom left;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.card[data-state="closed"] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, #222222);
+  color: var(--fg-2, #6a6a6a);
+}
+.filterInput {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--fg-0, #e6e6e6);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12.5px;
+}
+.filterInput::placeholder {
+  color: var(--fg-3, #4a4a4a);
+}
+
+.list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.section {
+  padding: 6px 8px 2px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-3, #4a4a4a);
+}
+
+.row {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg-1, #9a9a9a);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.row:hover {
+  background: var(--bg-2, #1a1a1a);
+  color: var(--fg-0, #e6e6e6);
+}
+.rowIcon {
+  flex: none;
+  display: inline-flex;
+  color: var(--fg-3, #4a4a4a);
+}
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The branch you're on — quiet accent, no competition with hover. */
+.current {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--accent, #5fa8ff);
+}
+/* A branch some worktree already has open — selecting it JUMPS, not creates. */
+.openTag {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--fg-3, #4a4a4a);
+}
+
+.empty {
+  padding: 12px 10px;
+  font-size: 12px;
+  color: var(--fg-2, #6a6a6a);
+}
+
+.footer {
+  padding: 6px 10px 7px;
+  border-top: 1px solid var(--border, #222222);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--fg-3, #4a4a4a);
+}

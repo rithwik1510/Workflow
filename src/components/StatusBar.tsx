@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 
 import styles from "@/components/StatusBar.module.css";
+import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { useMdStore } from "@/store/mdStore";
 import { useLayoutStore } from "@/store/layoutStore";
 import { usePtyStore } from "@/store/ptyStore";
@@ -67,9 +68,10 @@ export function StatusBar() {
   } else if (focusedSurface === "sidebar") {
     left = workspaceFolder ?? "";
   } else if (focusedSurface === "terminal" && focusedPaneId !== null) {
-    // §12: "<group label> / <session name> · <shell> · ⎇ <branch>".
-    // Per-pane cwd is NOT tracked in v1 — the old cwd column is dropped until
-    // OSC 7 cwd polling lands (v1.2). Each segment is added only when present.
+    // §12: "<group label> / <session name> · <shell>". The branch is no longer
+    // part of this string — it's the persistent BranchSwitcher chip rendered
+    // beside it (a real control, not display text). Per-pane cwd is NOT
+    // tracked in v1 — the old cwd column is dropped until OSC 7 lands (v1.2).
     const meta = panes[focusedPaneId];
     const parts: string[] = [];
     if (activeSession) {
@@ -78,7 +80,6 @@ export function StatusBar() {
       parts.push(`${groupLabel} / ${activeSession.name}`);
     }
     if (meta) parts.push(shellLabel(meta.shell));
-    if (activeSession?.gitBranch) parts.push(`⎇ ${activeSession.gitBranch}`);
     left = parts.length > 0 ? parts.join("  ·  ") : "Terminal";
   } else {
     // No focused surface yet (e.g. first launch before anything has focus).
@@ -113,6 +114,9 @@ export function StatusBar() {
       <div className={styles.left} title={left}>
         {left}
       </div>
+      {/* Persistent branch control (not display text): click → picker → a
+          terminal ON that branch, worktree-backed, never an in-place switch. */}
+      <BranchSwitcher />
       <div className={styles.right}>
         {(blockedCount > 0 || yourMoveCount > 0) && (
           <span

@@ -9,6 +9,15 @@ All notable changes to Lume are documented here. Format follows
 The dot leaves the window.
 
 ### Added
+- **Branch switcher in the status bar.** The `⎇ branch` display is now a real
+  control: click it to see every branch (locals, then remotes, type-to-filter,
+  current marked, "open" tag on branches a worktree already has) and selecting
+  one takes you to a terminal ON that branch — jumping to its existing session,
+  or checking it out into its own worktree (`~\lume\worktrees\<repo>\<slug>`)
+  and opening a session there. Remote-only branches get a local tracking
+  branch. Never an in-place `git checkout`: the files under a running agent
+  are never touched, and git's one-branch-one-worktree rule keeps two
+  terminals from ever writing to the same branch.
 - **Terminal credibility floor (Plan 012).** Three daily-driver basics, each an
   independently revertable change:
   - **Scrollback search — `Ctrl+F`.** A slim overlay bar (top-right, below the

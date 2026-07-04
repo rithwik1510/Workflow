@@ -345,6 +345,33 @@ pub fn git_worktree_add(repo: String, path: String, branch: String, base: String
     )))
 }
 
+/// Check out an EXISTING local branch into a worktree at `path`:
+/// `git worktree add <path> <branch>` (no `-b`). The branch-switcher's path for
+/// "open this branch in its own terminal" — git itself refuses if the branch is
+/// already checked out in another worktree (the safety rail: one branch, one
+/// worktree). Fails loud with git's stderr verbatim, like `git_worktree_add`.
+#[tauri::command]
+pub fn git_worktree_add_existing(repo: String, path: String, branch: String) -> AppResult<()> {
+    let output = run_git_inner(
+        &repo,
+        &["worktree", "add", &path, &branch],
+        WORKTREE_TIMEOUT,
+        true,
+    )
+    .ok_or_else(|| {
+        AppError::internal(format!(
+            "git worktree add failed to run or timed out in {repo}"
+        ))
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(AppError::internal(tool_message(
+        &output,
+        "git worktree add failed",
+    )))
+}
+
 /// One worktree attached to a repo (the main checkout plus every attempt).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1303,6 +1330,50 @@ detached
         };
         assert!(
             reason.to_lowercase().contains("exists"),
+            "git's message should surface verbatim, got: {reason}"
+        );
+    }
+
+    #[test]
+    fn worktree_add_existing_checks_out_and_refuses_double_checkout() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo(root);
+        std::fs::write(root.join("seed.txt"), "seed\n").unwrap();
+        git_in(root, &["add", "."]);
+        git_in(root, &["commit", "-q", "-m", "init"]);
+        git_in(root, &["branch", "feature/x"]);
+
+        // Existing branch → worktree checkout (the branch-switcher's path).
+        let wt = root.join("wt-feature-x");
+        let res = git_worktree_add_existing(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            "feature/x".to_string(),
+        );
+        assert!(
+            res.is_ok(),
+            "existing-branch checkout should succeed: {res:?}"
+        );
+        assert!(wt.join("seed.txt").exists());
+
+        // Git's one-branch-one-worktree rail: a second checkout of the same
+        // branch must refuse with git's own words.
+        let wt2 = root.join("wt-feature-x-2");
+        let err = git_worktree_add_existing(
+            root.to_string_lossy().to_string(),
+            wt2.to_string_lossy().to_string(),
+            "feature/x".to_string(),
+        )
+        .expect_err("double checkout must refuse");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            reason.to_lowercase().contains("already"),
             "git's message should surface verbatim, got: {reason}"
         );
     }

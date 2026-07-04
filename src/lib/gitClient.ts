@@ -106,6 +106,18 @@ export function gitWorktreeAdd(
   return invoke<void>("git_worktree_add", { repo, path, branch, base });
 }
 
+/** Check out an EXISTING local branch into a worktree at `path` (no new
+ *  branch). The branch-switcher's path; git itself refuses a branch that is
+ *  already checked out in another worktree. Rejects with git's verbatim
+ *  stderr, like gitWorktreeAdd. */
+export function gitWorktreeAddExisting(
+  repo: string,
+  path: string,
+  branch: string
+): Promise<void> {
+  return invoke<void>("git_worktree_add_existing", { repo, path, branch });
+}
+
 /** Every worktree attached to `repo` (main checkout + attempts). Used at boot
  *  to reconcile attemptStore against reality. Never rejects — [] on failure. */
 export function gitWorktreeList(repo: string): Promise<WorktreeEntry[]> {
