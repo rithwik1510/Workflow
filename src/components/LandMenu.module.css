@@ -1,0 +1,130 @@
+/* LandMenu — the Diff-tab "Land…" dropdown (Plan 013 Phase B).
+ *
+ * Same popover language as NewAttemptPopover / SplitMenu: a --bg-1 surface with
+ * a --border edge, --radius-md corners, a scale+fade presence from the top
+ * (anchored under the Land button in the Diff header). The accent appears
+ * EXACTLY ONCE — on the primary "Create pull request" action. Refusal reasons
+ * are quiet --fg-2 text, never alarm colours.
+ *
+ * GOTCHA (documented app-wide, e.g. SessionRow.module.css): an undefined custom
+ * property invalidates the WHOLE declaration, so every var() carries a literal
+ * fallback. The app-wide prefers-reduced-motion rule (theme.css) neutralises the
+ * transition and usePresence short-circuits mount/unmount, so no per-file
+ * reduced-motion handling is needed. */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-popover, 900);
+  min-width: 248px;
+  max-width: min(320px, calc(100vw - 16px));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background: var(--bg-1, #141414);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  color: var(--fg-0, #e6e6e6);
+  transform-origin: top right;
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.menu[data-state="closed"] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+.loading {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--fg-2, #6a6a6a);
+}
+
+.item {
+  appearance: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg-1, #9a9a9a);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease),
+    color var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.item > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fg-2, #6a6a6a);
+}
+.item:hover:not(:disabled) {
+  background: var(--bg-2, #1a1a1a);
+  color: var(--fg-0, #e6e6e6);
+}
+.item:hover:not(:disabled) > svg {
+  color: var(--fg-1, #9a9a9a);
+}
+.item:focus-visible {
+  outline: 2px solid var(--accent, #5fa8ff);
+  outline-offset: -2px;
+}
+.item:disabled {
+  cursor: default;
+  color: var(--fg-2, #6a6a6a);
+}
+
+.itemBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.itemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Refusal reason — quiet, muted, wrapped. Never an alarm colour. */
+.itemReason {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-3, #4a4a4a);
+  white-space: normal;
+}
+
+.divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border, #222222);
+}
+
+/* The single accented affordance: the primary land action. Its icon inherits
+ * the accent so the whole row reads as primary without a filled background
+ * (keeps the menu calm — one accent, not a block of colour). */
+.primary {
+  color: var(--fg-0, #e6e6e6);
+}
+.primary > svg {
+  color: var(--accent, #5fa8ff);
+}
+.primary:hover:not(:disabled) > svg {
+  color: var(--accent, #5fa8ff);
+}
