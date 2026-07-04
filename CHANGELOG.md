@@ -9,6 +9,25 @@ All notable changes to Lume are documented here. Format follows
 The dot leaves the window.
 
 ### Added
+- **Land an attempt from the Diff tab (Plan 013 Phase B).** Attempt sessions
+  (worktrees forked via "New attempt") gain a **Land…** menu in the Diff header
+  that offers only the paths that apply: **Create pull request** (`gh pr create
+  --fill` in the worktree, success toast links the PR) when a remote and the
+  GitHub CLI are both present; **Open compare page** as the GitHub fallback when
+  `gh` is absent; and **Merge into `<base>` locally** — enabled only when the
+  main checkout is provably safe (on the base branch AND clean), otherwise shown
+  disabled with the exact reason inline. The merge command re-verifies that
+  safety at the instant of merge and aborts any conflict, so the main checkout
+  is never left mid-merge. **Clean up…** (offered after a local land, and as its
+  own flow) removes the worktree and deletes the branch behind a confirm —
+  refusing a dirty worktree (`worktree remove`, no `--force`) or an unmerged
+  branch (`branch -d`, never `-D`) with git's own words. Nothing is ever forced,
+  stashed, or guessed.
+- **Merge-base diffs for attempt sessions (Plan 013 Phase B).** The Diff tab now
+  defaults an attempt to diffing against `merge-base(HEAD, <baseBranch>)` — i.e.
+  *everything the attempt changed since it forked*, not just uncommitted work —
+  with a header toggle back to **vs HEAD**. Non-attempt sessions are unchanged
+  (HEAD-only).
 - **OS attention escape (Plan 011).** Plan 008's precise agent signals now
   reach you when Lume is minimized or in the background. When a Claude Code
   agent is **blocked on a permission prompt**, Lume raises a system toast
