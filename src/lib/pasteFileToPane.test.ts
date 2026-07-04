@@ -10,6 +10,10 @@ const { paste, focusTerminal } = vi.hoisted(() => ({
 }));
 vi.mock("@/terminals/registry", () => ({
   getOrCreateTerminal: () => ({ paste }),
+  // Since the Plan-012 review fix, pasteFileToPane routes through the guarded
+  // paste chokepoint rather than term.paste directly — mock it to the same spy
+  // so the assertions below stay about WHAT text is pasted.
+  pasteIntoTerminal: (_paneId: string, text: string) => paste(text),
   focusTerminal,
 }));
 
