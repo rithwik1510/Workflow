@@ -130,6 +130,40 @@
   border-color: var(--accent-dim, #2f7adc);
 }
 
+/* Land… button + its anchored dropdown. The wrapper is the positioning context
+ * for LandMenu (which absolutely-positions itself under the button). */
+.landWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* A text+icon header button in the same control language as .iconBtn/.segBtn. */
+.textBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast, 120ms) var(--ease-out, ease),
+    background var(--dur-fast, 120ms) var(--ease-out, ease),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+.textBtn:hover,
+.textBtnActive,
+.textBtnActive:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+  border-color: var(--accent-dim, #2f7adc);
+}
+
 /* Body: file list (left) + diff detail (right). */
 .body {
   flex: 1;

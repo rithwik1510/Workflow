@@ -53,6 +53,15 @@ describe("attemptStore actions", () => {
   it("dismissHint on an unknown session is a no-op", () => {
     expect(() => useAttemptStore.getState().dismissHint("nope")).not.toThrow();
   });
+
+  it("markLanded stamps landedAt; unknown session is a no-op", () => {
+    const s = useAttemptStore.getState();
+    s.addAttempt("sess-1", mk());
+    expect(useAttemptStore.getState().attempts["sess-1"].landedAt).toBeUndefined();
+    s.markLanded("sess-1");
+    expect(useAttemptStore.getState().attempts["sess-1"].landedAt).toBeTypeOf("number");
+    expect(() => useAttemptStore.getState().markLanded("nope")).not.toThrow();
+  });
 });
 
 describe("reconcileAttempts", () => {

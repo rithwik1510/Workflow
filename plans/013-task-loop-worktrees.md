@@ -20,6 +20,16 @@ it"; UI bar: "HAS to be good like we have now"):
   never stash on the user's behalf, `git branch -d` only (never `-D`).
 Phased A (attempts) → B (Land). Implement THIRD, after 011/012.
 
+**Phase A: IMPLEMENTED** (attemptStore, worktree Rust commands, New Attempt
+popover, fresh-worktree hint chip). **Phase B: IMPLEMENTED** — the Diff-tab
+Land… menu (PR / compare-page / provably-safe local merge / cleanup), the
+TOCTOU-guarded `git_merge_attempt` (re-checks on-base + clean at merge time,
+aborts on conflict), `git_worktree_remove`/`git_branch_delete` (refuse-and-
+explain, no --force / -d only), the `gh` probe + `gh pr create`, and the
+merge-base diff upgrade (`git_merge_base` + a `base` param on
+`git_changed_files`/`git_file_diff`). Manual full-arc verification on a real
+repo (below) still pending live-GUI.
+
 ## The rule this encodes (operator explainer, distilled)
 
 `git checkout` rewrites files IN PLACE — under a running agent that is

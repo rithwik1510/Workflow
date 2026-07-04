@@ -19,11 +19,14 @@
 import { useEffect, useRef, useState } from "react";
 
 import styles from "@/components/DiffView.module.css";
-import { IconClose, IconDiff, IconRefresh, IconFile } from "@/components/icons";
+import { IconClose, IconDiff, IconRefresh, IconFile, IconGitBranch } from "@/components/icons";
+import { LandMenu } from "@/components/LandMenu";
 import { buildDiffView, type DiffHandle } from "@/codemirror/mergeSetup";
 import { resolveLanguageExtension } from "@/codemirror/languages";
 import { gitFileDiff, type ChangedFile, type ChangedFileStatus } from "@/lib/gitClient";
 import { useDiffStore, type DiffViewMode } from "@/store/diffStore";
+import { useAttemptStore } from "@/store/attemptStore";
+import { useSessionsStore } from "@/store/sessionsStore";
 import { useMdStore } from "@/store/mdStore";
 import { tabKindForPath } from "@/store/mdStore";
 
@@ -134,10 +137,13 @@ function DiffContent({
   repo,
   file,
   viewMode,
+  base,
 }: {
   repo: string;
   file: ChangedFile;
   viewMode: DiffViewMode;
+  /** Old-side ref: null = HEAD, or a merge-base SHA for an attempt session. */
+  base: string | null;
 }) {
   const [state, setState] = useState<ContentState>({ kind: "loading" });
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +157,7 @@ function DiffContent({
     void (async () => {
       try {
         const [diff, language] = await Promise.all([
-          gitFileDiff(repo, file.path, file.oldPath),
+          gitFileDiff(repo, file.path, file.oldPath, base),
           resolveLanguageExtension(file.path, tabKindForPath(file.path)),
         ]);
         if (disposed) return;
@@ -172,7 +178,7 @@ function DiffContent({
     return () => {
       disposed = true;
     };
-  }, [repo, file.path, file.oldPath]);
+  }, [repo, file.path, file.oldPath, base]);
 
   // Build (and rebuild on viewMode change) the CodeMirror diff once text is
   // ready. The host div only mounts in the "ready" branch, so it's present here.
@@ -224,15 +230,34 @@ export function DiffView() {
   const viewMode = useDiffStore((s) => s.viewMode);
   const loading = useDiffStore((s) => s.loading);
   const error = useDiffStore((s) => s.error);
+  const baseBranch = useDiffStore((s) => s.baseBranch);
+  const attemptRepo = useDiffStore((s) => s.attemptRepo);
+  const mergeBase = useDiffStore((s) => s.mergeBase);
+  const baseMode = useDiffStore((s) => s.baseMode);
+  const activeBase = useDiffStore((s) => s.activeBase);
 
   const setActiveRepo = useDiffStore((s) => s.setActiveRepo);
   const selectFile = useDiffStore((s) => s.selectFile);
   const setViewMode = useDiffStore((s) => s.setViewMode);
+  const setBaseMode = useDiffStore((s) => s.setBaseMode);
   const refresh = useDiffStore((s) => s.refresh);
   const closeDiff = useDiffStore((s) => s.closeDiff);
 
+  // Land applies to the ACTIVE session's attempt (the Diff tab is session-
+  // scoped). Look it up here so the button only shows for attempt sessions.
+  const activeSessionId = useSessionsStore((s) => s.activeSessionId);
+  const attempt = useAttemptStore((s) =>
+    activeSessionId ? s.attempts[activeSessionId] : undefined
+  );
+  const [landOpen, setLandOpen] = useState(false);
+
   const selectedFile = files.find((f) => f.path === selectedPath) ?? null;
   const repoName = activeRepo ? splitPath(activeRepo).name : null;
+
+  // The base toggle only makes sense when a merge-base resolved AND we're looking
+  // at the attempt's own repo (a multi-repo session's other repos are HEAD-only).
+  const showBaseToggle =
+    !!baseBranch && !!mergeBase && !!activeRepo && activeRepo === attemptRepo;
 
   return (
     <div className={styles.root}>
@@ -258,6 +283,49 @@ export function DiffView() {
           )}
         </div>
         <div className={styles.headerRight}>
+          {showBaseToggle && (
+            <div className={styles.segmented} role="group" aria-label="Diff base">
+              <button
+                type="button"
+                className={`${styles.segBtn} ${baseMode === "mergeBase" ? styles.segActive : ""}`}
+                aria-pressed={baseMode === "mergeBase"}
+                title={`Diff everything this attempt changed since it forked from ${baseBranch}`}
+                onClick={() => void setBaseMode("mergeBase")}
+              >
+                vs {baseBranch}
+              </button>
+              <button
+                type="button"
+                className={`${styles.segBtn} ${baseMode === "head" ? styles.segActive : ""}`}
+                aria-pressed={baseMode === "head"}
+                title="Diff only the uncommitted working-tree changes"
+                onClick={() => void setBaseMode("head")}
+              >
+                vs HEAD
+              </button>
+            </div>
+          )}
+          {attempt && activeSessionId && (
+            <div className={styles.landWrap}>
+              <button
+                type="button"
+                className={`${styles.textBtn} ${landOpen ? styles.textBtnActive : ""}`}
+                aria-haspopup="menu"
+                aria-expanded={landOpen}
+                title="Land this attempt (PR, merge, or clean up)"
+                onClick={() => setLandOpen((v) => !v)}
+              >
+                <IconGitBranch size={14} />
+                <span>Land…</span>
+              </button>
+              <LandMenu
+                open={landOpen}
+                attempt={attempt}
+                sessionId={activeSessionId}
+                onClose={() => setLandOpen(false)}
+              />
+            </div>
+          )}
           <div className={styles.segmented} role="group" aria-label="Diff layout">
             <button
               type="button"
@@ -331,10 +399,11 @@ export function DiffView() {
           <div className={styles.detail}>
             {selectedFile && activeRepo ? (
               <DiffContent
-                key={`${activeRepo}:${selectedFile.path}`}
+                key={`${activeRepo}:${activeBase ?? "HEAD"}:${selectedFile.path}`}
                 repo={activeRepo}
                 file={selectedFile}
                 viewMode={viewMode}
+                base={activeBase}
               />
             ) : (
               <div className={styles.contentMsg}>
