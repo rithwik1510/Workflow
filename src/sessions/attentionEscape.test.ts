@@ -24,7 +24,12 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   })),
 }));
 
-import { decideEscape, TOAST_MIN_GAP_MS, type EscapeInput } from "@/sessions/attentionEscape";
+import {
+  decideEscape,
+  diffPhases,
+  TOAST_MIN_GAP_MS,
+  type EscapeInput,
+} from "@/sessions/attentionEscape";
 import { needsYouCounts } from "@/sessions/sessionSignal";
 import { leaf } from "@/store/layout/tree";
 import type { PaneAgent } from "@/store/agentStore";
@@ -182,6 +187,41 @@ const session = (id: string, paneId: string, over: Partial<Session> = {}): Sessi
     working: false,
     ...over,
   }) as Session;
+
+describe("diffPhases — the transition detector", () => {
+  it("reports a changed pane as one from→to transition", () => {
+    const { next, transitions } = diffPhases(
+      { p1: "working" },
+      { p1: { phase: "permission" } }
+    );
+    expect(transitions).toEqual([{ paneId: "p1", from: "working", to: "permission" }]);
+    expect(next).toEqual({ p1: "permission" });
+  });
+
+  it("a NEVER-SEEN pane first appearing at permission gets a synthetic idle baseline", () => {
+    // Out-of-order hooks (installed mid-session) can make a pane's first
+    // recorded phase `permission` — the sticky state that may emit no further
+    // event. It must escape, not be skipped.
+    const { transitions } = diffPhases({}, { p1: { phase: "permission" } });
+    expect(transitions).toEqual([{ paneId: "p1", from: "idle", to: "permission" }]);
+  });
+
+  it("a new pane appearing at idle is silent (idle→idle no-op)", () => {
+    expect(diffPhases({}, { p1: { phase: "idle" } }).transitions).toEqual([]);
+  });
+
+  it("vanished panes (SessionEnd) produce no transition and leave the snapshot", () => {
+    const { next, transitions } = diffPhases({ p1: "working" }, {});
+    expect(transitions).toEqual([]);
+    expect(next).toEqual({});
+  });
+
+  it("unchanged panes are silent", () => {
+    expect(
+      diffPhases({ p1: "permission" }, { p1: { phase: "permission" } }).transitions
+    ).toEqual([]);
+  });
+});
 
 describe("needsYouCounts — badge/StatusBar parity", () => {
   it("counts background permission vs your-move, excluding the visible session", () => {

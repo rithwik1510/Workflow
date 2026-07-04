@@ -157,19 +157,38 @@ function handleTransition(paneId: PaneId, from: AgentPhase, to: AgentPhase): voi
   if (decision.flash) void flashTaskbar();
 }
 
+/** Pure phase diff: previous snapshot × current panes → the transitions to
+ *  dispatch + the next snapshot. A pane we've never seen gets a synthetic
+ *  `idle` baseline instead of being skipped: Plan 008 tolerates out-of-order
+ *  hook events, so a pane's FIRST recorded phase can be `permission` (hooks
+ *  installed mid-session) — and permission is exactly the sticky state that
+ *  may emit no further event. Skipping it would silently swallow a blocked
+ *  agent. Normal first phases (idle from SessionStart) diff as idle→idle and
+ *  stay silent; boot replay is covered by installAttentionEscape's snapshot
+ *  seeding. Vanished panes (SessionEnd) need no escape — they're just dropped
+ *  from the snapshot. */
+export function diffPhases(
+  prev: Record<PaneId, AgentPhase>,
+  panes: Record<PaneId, { phase: AgentPhase }>
+): {
+  next: Record<PaneId, AgentPhase>;
+  transitions: { paneId: PaneId; from: AgentPhase; to: AgentPhase }[];
+} {
+  const next: Record<PaneId, AgentPhase> = {};
+  const transitions: { paneId: PaneId; from: AgentPhase; to: AgentPhase }[] = [];
+  for (const [paneId, pa] of Object.entries(panes)) {
+    next[paneId] = pa.phase;
+    const from = prev[paneId] ?? "idle";
+    if (from !== pa.phase) transitions.push({ paneId, from, to: pa.phase });
+  }
+  return { next, transitions };
+}
+
 /** Diff the agent store's phases against the previous snapshot, dispatch each
  *  changed pane through the policy, then refresh the badge. */
 function onAgentStoreChange(): void {
-  const panes = useAgentStore.getState().panes;
-  const next: Record<PaneId, AgentPhase> = {};
-  for (const [paneId, pa] of Object.entries(panes)) {
-    next[paneId] = pa.phase;
-    const prev = prevPhases[paneId];
-    if (prev !== undefined && prev !== pa.phase) {
-      handleTransition(paneId, prev, pa.phase);
-    }
-  }
-  // Panes that vanished (SessionEnd) need no escape — just drop them.
+  const { next, transitions } = diffPhases(prevPhases, useAgentStore.getState().panes);
+  for (const t of transitions) handleTransition(t.paneId, t.from, t.to);
   prevPhases = next;
   scheduleBadge();
 }
