@@ -13,6 +13,7 @@ import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITerminalOptions } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 
 import { readClipboardText, writeClipboardText } from "@/lib/clipboardClient";
 import { noteBell } from "@/sessions/attentionTracker";
@@ -31,6 +32,9 @@ interface TerminalEntry {
   term: Terminal;
   fit: FitAddon;
   webgl: WebglAddon | null;
+  /** Scrollback search (Ctrl+F). One per Terminal; the overlay drives it via
+   *  the terminal*Search helpers below. Disposed with the Terminal. */
+  search: SearchAddon;
   attachedTo: HTMLElement | null;
   linkDisposable: IDisposable | null;
 }
@@ -196,14 +200,82 @@ export function getOrCreateTerminal(paneId: PaneId): Terminal {
   const fit = new FitAddon();
   term.loadAddon(fit);
 
+  // Scrollback search (Ctrl+F). Highlight cap keeps a pathological query
+  // ("e" over 100k lines) from decorating the whole buffer.
+  const search = new SearchAddon({ highlightLimit: 2000 });
+  term.loadAddon(search);
+
   entries.set(paneId, {
     term,
     fit,
     webgl: null,
+    search,
     attachedTo: null,
     linkDisposable: null,
   });
   return term;
+}
+
+/** Concrete #RRGGBB search-highlight colours derived from the ACTIVE theme —
+ *  xterm decorations require literal hex (matchBackground: "must use #RRGGBB"),
+ *  not CSS vars. Mirrors xtermThemeFromCSS's read-off-:root approach so search
+ *  highlights track theme switches. */
+function searchDecorations(): ISearchOptions["decorations"] {
+  const css = getComputedStyle(document.documentElement);
+  const read = (name: string, fallback: string): string => {
+    const v = css.getPropertyValue(name).trim();
+    return /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
+  };
+  const match = read("--accent-dim", "#2f7adc");
+  const active = read("--accent", "#5fa8ff");
+  return {
+    matchBackground: match,
+    matchOverviewRuler: match,
+    activeMatchBackground: active,
+    activeMatchColorOverviewRuler: active,
+  };
+}
+
+/** Shared search options: case-insensitive, decorations from the active theme. */
+function searchOptions(extra?: Partial<ISearchOptions>): ISearchOptions {
+  return { caseSensitive: false, decorations: searchDecorations(), ...extra };
+}
+
+/** Find the next match of `query` in the pane's scrollback (Ctrl+F / Enter).
+ *  `incremental` expands the current selection while the user is still typing. */
+export function terminalFindNext(
+  paneId: PaneId,
+  query: string,
+  opts?: { incremental?: boolean }
+): boolean {
+  const entry = entries.get(paneId);
+  if (!entry) return false;
+  return entry.search.findNext(query, searchOptions({ incremental: opts?.incremental }));
+}
+
+/** Find the previous match (Shift+Enter). */
+export function terminalFindPrevious(paneId: PaneId, query: string): boolean {
+  const entry = entries.get(paneId);
+  if (!entry) return false;
+  return entry.search.findPrevious(query, searchOptions());
+}
+
+/** Clear all search highlights + the active-match decoration (bar closed). */
+export function clearTerminalSearch(paneId: PaneId): void {
+  const entry = entries.get(paneId);
+  if (!entry) return;
+  entry.search.clearDecorations();
+}
+
+/** Subscribe to the addon's match-count changes (feeds the "3/17" counter).
+ *  Returns null when the pane has no Terminal yet. */
+export function onTerminalSearchResults(
+  paneId: PaneId,
+  handler: (results: { resultIndex: number; resultCount: number }) => void
+): IDisposable | null {
+  const entry = entries.get(paneId);
+  if (!entry) return null;
+  return entry.search.onDidChangeResults(handler);
 }
 
 /**

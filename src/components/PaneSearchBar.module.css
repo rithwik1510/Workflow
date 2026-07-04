@@ -1,0 +1,114 @@
+/* PaneSearchBar — Ctrl+F scrollback-search overlay (Plan 012).
+ *
+ * OVERLAY, never flow: absolutely positioned so it never shifts the xterm grid
+ * (a reflow would rewrap the shell). Pinned top-right, BELOW the corner cluster
+ * (pane badge / zoom / close at top 4px right 6px in PaneTree's LeafFrame) —
+ * top 26px clears the ~16px cluster with a small gap. Slides down + fades in via
+ * usePresence data-state; the app-wide prefers-reduced-motion rule neutralises
+ * the transition and usePresence short-circuits mount/unmount, so no local
+ * reduced-motion handling is needed.
+ *
+ * GOTCHA (see SessionRow.module.css): an undefined custom property invalidates
+ * the WHOLE declaration — every var() below carries a literal fallback. */
+
+.bar {
+  position: absolute;
+  top: 26px;
+  right: 6px;
+  z-index: 5; /* above the resume banner (4) and corner cluster (2) */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 8px;
+  max-width: calc(100% - 12px);
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.bar[data-state="closed"] {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+.leading {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-2, #6a6a6a);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 96px;
+  width: 120px;
+  appearance: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg-0, #e6e6e6);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  padding: 2px 2px;
+}
+.input::placeholder {
+  color: var(--fg-3, #4a4a4a);
+}
+
+.counter {
+  flex: none;
+  min-width: 34px;
+  text-align: right;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-2, #6a6a6a);
+  font-size: 11px;
+}
+.counterEmpty {
+  color: var(--accent-amber, #e0a458);
+}
+
+.btn {
+  flex: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--fg-1, #9a9a9a);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.btn:hover:not(:disabled) {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+  border-color: var(--accent-dim, #2f7adc);
+}
+.btn:disabled {
+  color: var(--fg-3, #4a4a4a);
+  cursor: default;
+}
+
+/* Prev chevron — IconChevron points down; flip it for "previous". */
+.chevronUp {
+  display: inline-flex;
+  transform: rotate(180deg);
+}

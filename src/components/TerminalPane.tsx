@@ -25,6 +25,7 @@ import {
   resetMouseModes,
 } from "@/terminals/registry";
 import { PaneResumeBanner } from "@/components/PaneResumeBanner";
+import { PaneSearchBar } from "@/components/PaneSearchBar";
 import { AttemptHintChip } from "@/components/AttemptHintChip";
 import { registerOscHandlers } from "@/sessions/oscNotifications";
 import { registerClipboardOsc } from "@/sessions/oscClipboard";
@@ -202,6 +203,9 @@ function TerminalPaneImpl({ paneId }: Props) {
       }}
     >
       <div ref={hostRef} style={{ width: "100%", height: "100%" }} />
+      {/* Ctrl+F scrollback search — overlay pinned top-right below the corner
+          cluster; never reflows the xterm grid (Plan 012). */}
+      <PaneSearchBar paneId={paneId} />
       {/* Resume affordance — overlays the top of the pane on restore; never
           shifts the xterm grid (Plan 009). */}
       <PaneResumeBanner paneId={paneId} />

@@ -19,6 +19,7 @@ import { useEffect } from "react";
 
 import { useLayoutStore } from "@/store/layoutStore";
 import { useMdStore } from "@/store/mdStore";
+import { usePaneSearchStore } from "@/store/paneSearchStore";
 import { useDiffStore } from "@/store/diffStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { useSessionsStore, groupedSessions } from "@/store/sessionsStore";
@@ -161,6 +162,18 @@ function closeFocused(): boolean {
 
 function toggleSidebar(): boolean {
   useSidebarStore.getState().toggleSidebar();
+  return true;
+}
+
+// Ctrl+F — open the focused terminal's scrollback search (Plan 012). ONLY when
+// a terminal is the focused surface: the MD editor keeps CodeMirror's own find
+// (and shouldSkipShortcut already yields to CodeMirror when it has DOM focus).
+// Returns false when not a terminal so the keystroke isn't consumed.
+export function openTerminalSearch(): boolean {
+  if (useMdStore.getState().focusedSurface !== "terminal") return false;
+  const focused = useLayoutStore.getState().focusedPaneId;
+  if (focused === null) return false;
+  usePaneSearchStore.getState().open(focused);
   return true;
 }
 
@@ -342,6 +355,14 @@ const SHORTCUTS: Shortcut[] = [
   {
     match: (e) => isCtrlOnly(e) && (e.key === "b" || e.key === "B"),
     run: () => toggleSidebar(),
+  },
+
+  // Find in terminal — Ctrl+F. Gated on terminal focus inside run(); a no-op
+  // (returns false, keystroke not consumed) on any other surface so the MD
+  // editor's CodeMirror find still works.
+  {
+    match: (e) => isCtrlOnly(e) && (e.key === "f" || e.key === "F"),
+    run: () => openTerminalSearch(),
   },
 
   // Toggle MD Quick Viewer — Ctrl+Shift+M (must come before Ctrl+W so the
