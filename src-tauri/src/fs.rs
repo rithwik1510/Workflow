@@ -78,7 +78,6 @@ fn to_entry(entry: &fs::DirEntry) -> AppResult<DirEntry> {
     })
 }
 
-#[tauri::command]
 pub fn list_dir(path: String) -> AppResult<Vec<DirEntry>> {
     let p = PathBuf::from(&path);
     let canonical = p.canonicalize().map_err(|e| AppError::Internal {
@@ -102,14 +101,12 @@ pub fn list_dir(path: String) -> AppResult<Vec<DirEntry>> {
     Ok(out)
 }
 
-#[tauri::command]
 pub fn read_text_file(path: String) -> AppResult<String> {
     fs::read_to_string(&path).map_err(|e| AppError::Internal {
         reason: format!("read {}: {}", path, e),
     })
 }
 
-#[tauri::command]
 pub fn write_text_file(path: String, contents: String) -> AppResult<()> {
     if let Some(parent) = Path::new(&path).parent() {
         if !parent.exists() {
@@ -140,7 +137,6 @@ pub struct EditorFile {
     pub refused: bool,
 }
 
-#[tauri::command]
 pub fn read_editor_file(path: String) -> AppResult<EditorFile> {
     let meta = fs::metadata(&path).map_err(|e| AppError::Internal {
         reason: format!("metadata {}: {}", path, e),
@@ -202,6 +198,52 @@ pub fn home_dir() -> AppResult<String> {
         .ok_or_else(|| AppError::Internal {
             reason: "home dir unavailable".to_string(),
         })
+}
+
+// ---------------------------------------------------------------------------
+// Async command shims (Plan 001 freeze fix — same rationale as git::cmd).
+//
+// Tauri v2 runs SYNC commands on the MAIN thread. Lume runs entirely from a
+// OneDrive-synced tree, where a cloud-only ("online-only") file can block for
+// SECONDS on first read while OneDrive hydrates it — freezing the main thread
+// and the whole IPC queue. These shims hop the file I/O onto the blocking pool
+// so opening a file or the drawer can never stall keystrokes. Command names +
+// signatures are byte-identical; the sync bodies stay the unit-tested truth.
+// `home_dir` is left sync (an env-var read — instant, never touches OneDrive).
+// ---------------------------------------------------------------------------
+
+pub mod cmd {
+    use super::*;
+
+    async fn blocking<T: Send + 'static>(
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, AppError> {
+        tauri::async_runtime::spawn_blocking(f)
+            .await
+            .map_err(|e| AppError::Internal {
+                reason: format!("blocking task join: {e}"),
+            })
+    }
+
+    #[tauri::command]
+    pub async fn list_dir(path: String) -> AppResult<Vec<DirEntry>> {
+        blocking(move || super::list_dir(path)).await?
+    }
+
+    #[tauri::command]
+    pub async fn read_text_file(path: String) -> AppResult<String> {
+        blocking(move || super::read_text_file(path)).await?
+    }
+
+    #[tauri::command]
+    pub async fn write_text_file(path: String, contents: String) -> AppResult<()> {
+        blocking(move || super::write_text_file(path, contents)).await?
+    }
+
+    #[tauri::command]
+    pub async fn read_editor_file(path: String) -> AppResult<EditorFile> {
+        blocking(move || super::read_editor_file(path)).await?
+    }
 }
 
 #[cfg(test)]

@@ -94,10 +94,13 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             pty::is_pty_busy,
-            crate::fs::list_dir,
-            crate::fs::read_text_file,
-            crate::fs::read_editor_file,
-            crate::fs::write_text_file,
+            // Async shims (Plan 001): file I/O off the main thread so a
+            // OneDrive hydration stall can't freeze the app. home_dir stays
+            // sync (instant env read).
+            crate::fs::cmd::list_dir,
+            crate::fs::cmd::read_text_file,
+            crate::fs::cmd::read_editor_file,
+            crate::fs::cmd::write_text_file,
             crate::fs::home_dir,
             crate::file_watcher::watch_workspace,
             crate::editor_watch::watch_editor_file,
