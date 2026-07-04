@@ -15,7 +15,9 @@
 import styles from "@/components/AttemptHintChip.module.css";
 import { usePresence } from "@/hooks/usePresence";
 import { revealInExplorer } from "@/lib/revealInExplorer";
+import { useAgentStore } from "@/store/agentStore";
 import { useAttemptStore } from "@/store/attemptStore";
+import { usePaneResumeStore } from "@/store/paneResumeStore";
 import { findSessionForPane, useSessionsStore } from "@/store/sessionsStore";
 import type { PaneId } from "@/types";
 
@@ -26,7 +28,18 @@ export function AttemptHintChip({ paneId }: { paneId: PaneId }) {
   const attempt = useAttemptStore((s) => (sessionId ? s.attempts[sessionId] : undefined));
   const dismissHint = useAttemptStore((s) => s.dismissHint);
 
-  const shouldShow = !!attempt && !attempt.hintDismissed;
+  // Yield to the resume banner: both overlays pin to the same top-center slot,
+  // and after a restart an attempt pane can have BOTH an undismissed hint and a
+  // resumable agent. The banner is the actionable one (Resume/Just shell); the
+  // hint is persistent until dismissed, so it simply reappears once the banner
+  // resolves. Mirrors PaneResumeBanner's own visibility condition exactly.
+  const hasResumableAgent = usePaneResumeStore(
+    (s) => s.records[paneId]?.aliveAtShutdown ?? false
+  );
+  const hasLiveAgent = useAgentStore((s) => !!s.panes[paneId]);
+  const resumeBannerShowing = hasResumableAgent && !hasLiveAgent;
+
+  const shouldShow = !!attempt && !attempt.hintDismissed && !resumeBannerShowing;
   const { mounted, state } = usePresence(shouldShow, 200);
   if (!mounted || !attempt || !sessionId) return null;
 
