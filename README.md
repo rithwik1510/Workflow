@@ -153,11 +153,14 @@ Lume **session-restores** your whole fleet on relaunch — layout, shells, and w
 | Toggle Quick Viewer | `Ctrl` `Shift` `M` |
 | Toggle sidebar | `Ctrl` `B` |
 | Close focused pane | `Ctrl` `W` |
+| Find in terminal (scrollback search) | `Ctrl` `F` |
 | Copy in a terminal | `Ctrl+Shift+C` (or `Ctrl+C` with a selection — copies, then clears) |
 | Paste in a terminal | `Ctrl+Shift+V` |
 | Keyboard shortcuts viewer | `Ctrl` `?` |
 
 > **Selection in mouse-reporting TUIs** (Claude Code, Codex, vim): hold **Shift** while dragging to select text — otherwise the TUI eats the mouse events.
+
+> **Ctrl+F** opens a slim scrollback search over the focused terminal (`Enter` / `Shift+Enter` to step, `Esc` to close). **Ctrl+click** an `http(s)` link in output to open it in your browser. Pasting text with a line break asks first (it would run in the shell) — toggle in Settings → Terminal.
 
 Every key is rebindable in `config.toml`.
 

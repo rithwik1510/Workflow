@@ -2,10 +2,30 @@
 
 ## Status
 
-APPROVED — 2026-07-03, no open design questions. Three independent items;
-land one at a time (separate commits, each individually revertable).
-Implement SECOND of the Beta three (after 011). Depends on 011 only for
-`prefsStore` (the paste-guard toggle lives there).
+IMPLEMENTED — 2026-07-03, on a worktree branched from 011. Three commits
+(search / web-links / paste-guard), gates green (tsc, 662 vitest, vite build;
+no Rust touched). Originally APPROVED 2026-07-03, no open design questions.
+Depends on 011 only for `prefsStore` (the paste-guard toggle lives there).
+
+### Implementation notes
+
+- **Opener reused, not added.** Web links open via the existing
+  `src/lib/openExternal.ts` (`@tauri-apps/plugin-shell`), and `shell:allow-open`
+  is already in `capabilities/default.json` — no `plugin-opener`, no new
+  capability, no Rust change.
+- **Search decorations: shipped WITH decorations, needs one live-GUI check.**
+  `@xterm/addon-search` renders match highlights through xterm's decoration
+  overlay (independent of the text renderer), so they are expected to render
+  correctly under the WebGL renderer the app uses; colours are concrete
+  `#RRGGBB` read off the active theme (`searchDecorations()` in registry.ts).
+  This could not be visually confirmed from the headless agent — **verify in the
+  running app** that highlights + the overview-ruler ticks paint without WebGL
+  artifacts. If any appear, the documented fallback is a one-line change: drop
+  the `decorations` field from `searchOptions()` and ship find-and-scroll only
+  (still passes the floor).
+- **Both addon deps** (`@xterm/addon-search` + `@xterm/addon-web-links`) landed
+  in the search commit to keep the lockfile coherent; the web-links feature
+  *code* is in its own commit.
 
 ## Goal
 

@@ -288,6 +288,14 @@ Clipboard shortcuts are **surface-aware**, not global. Lume routes them based on
 
 `Ctrl+Shift+R` (when a Terminal Pane is focused) writes the full sequence to disable every mouse-tracking mode (`?9 / ?1000 / ?1001 / ?1002 / ?1003 / ?1004 / ?1005 / ?1006 / ?1015 / ?1016` all off). Captured in Weekend 0 spike: an app killed with SIGTERM (e.g. `timeout 5 top`) skips its cleanup hook and leaves mouse tracking enabled, after which every cursor movement spams the PTY with reports and the pane becomes unusable from inside. The panic key is the recovery hatch. Additionally, Lume should write the same disable sequence proactively whenever a new PTY is spawned, as defensive hygiene.
 
+### Terminal credibility floor (Plan 012)
+
+Three daily-driver basics, each landed as its own revertable commit:
+
+- **Scrollback search — `Ctrl+F`** (only when a Terminal is the focused surface; the MD editor keeps CodeMirror's own find). A slim overlay bar pins top-right, *below* the pane's corner cluster, and never reflows the xterm grid. Incremental + case-insensitive (`@xterm/addon-search`), `Enter` / `Shift+Enter` step matches, a live `3/17` counter reads from the addon, `Esc` closes and returns focus to the terminal. Match highlights use concrete `#RRGGBB` colours derived from the active theme (xterm decorations reject CSS vars).
+- **Ctrl+click web links.** `@xterm/addon-web-links` opens `http(s)` URLs in the OS browser via `openExternal` (`plugin-shell`). **Ctrl/Cmd+click only** — a plain click stays with the shell's mouse modes so agents/TUIs keep their clicks. The webview never navigates.
+- **Multiline-paste guard.** Pasting text containing a newline into a terminal asks first (a stray multi-line paste executes in most shells). Confirm pastes the original text byte-identical; cancel sends nothing. Single-line pastes never prompt. Toggle: Settings → Terminal → "Warn on multiline paste" (default ON). Non-terminal surfaces use a different paste path and are untouched.
+
 Reserved for v0.2+: `Ctrl+T` (New Tab), `Ctrl+Tab` at the Lume level.
 Reserved for v0.3+: `Ctrl+K` (Spotlight), `Ctrl+Shift+D` (Dashboard).
 

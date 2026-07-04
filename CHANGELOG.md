@@ -9,6 +9,21 @@ All notable changes to Lume are documented here. Format follows
 The dot leaves the window.
 
 ### Added
+- **Terminal credibility floor (Plan 012).** Three daily-driver basics, each an
+  independently revertable change:
+  - **Scrollback search — `Ctrl+F`.** A slim overlay bar (top-right, below the
+    pane's corner cluster) searches the focused terminal's scrollback:
+    incremental, case-insensitive, `Enter` / `Shift+Enter` to step matches, a
+    live `3/17` counter, `Esc` to close and return focus. Opens only when a
+    terminal is focused — the MD editor keeps CodeMirror's own find.
+  - **Ctrl+click web links.** `Ctrl`/`Cmd`+click an `http(s)` URL in output to
+    open it in your default browser. A plain click stays with the shell's mouse
+    modes so agents and TUIs keep their clicks.
+  - **Multiline-paste guard.** Pasting text that contains a line break asks
+    first — most shells run each completed line the instant it's pasted.
+    Confirm pastes the text unchanged; cancel sends nothing. Single-line pastes
+    never prompt. Toggle in Settings → Terminal → "Warn on multiline paste"
+    (default ON).
 - **OS attention escape (Plan 011).** Plan 008's precise agent signals now
   reach you when Lume is minimized or in the background. When a Claude Code
   agent is **blocked on a permission prompt**, Lume raises a system toast
