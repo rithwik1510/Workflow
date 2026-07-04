@@ -97,13 +97,30 @@ export function applyAgentEvent(evt: AgentEvent): void {
   // Canary: the first SessionStart confirms the hooks actually fire.
   if (evt.event === "SessionStart") {
     store.markSessionStart();
-    // Plan 009: remember this pane ran Claude, with its resume id + cwd, so a
-    // restart can offer [Resume]. cwd prefers the hook's own value, falling back
-    // to the owning session's folder.
+    // Plan 009: remember this pane ran Claude (+ cwd) so a restart can offer
+    // [Resume]. DELIBERATELY WITHOUT the session id: Claude Code only writes a
+    // session's transcript once a message is actually sent, so a session that
+    // starts and never converses has an id that resumes NOTHING ("No
+    // conversation found") — and a pane's fresh empty session must not clobber
+    // the id of the real conversation that ran there before it. The id is
+    // recorded below, on the first evidence of content.
     const cwd = evt.cwd ?? findSessionForPane(useSessionsStore.getState(), evt.paneId)?.folderPath ?? null;
+    usePaneResumeStore.getState().recordAgentStart(evt.paneId, { cwd });
+  } else if (
+    evt.sessionId &&
+    (evt.event === "UserPromptSubmit" ||
+      evt.event === "Stop" ||
+      (evt.event === "Notification" && evt.kind === "permission_prompt"))
+  ) {
+    // First PROOF of a real conversation: a prompt was submitted, a turn
+    // finished, or a turn is blocked on permission — all of which can only
+    // happen once the transcript exists on disk, i.e. `claude --resume <id>`
+    // will actually find it. Only now does the id become the pane's resume
+    // target. (Notification/idle_prompt is excluded: it can fire on an empty
+    // session sitting at its prompt.)
     usePaneResumeStore
       .getState()
-      .recordAgentStart(evt.paneId, { agentSessionId: evt.sessionId, cwd });
+      .recordAgentStart(evt.paneId, { agentSessionId: evt.sessionId, cwd: evt.cwd });
   }
 
   // View-acknowledgment, mirroring bumpUnread's "never light up the visible
