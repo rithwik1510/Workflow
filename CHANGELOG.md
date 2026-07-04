@@ -6,10 +6,52 @@ All notable changes to Lume are documented here. Format follows
 
 ## [Unreleased]
 
-The dot leaves the window.
+## [0.1.0] — 2026-07-04
+
+Out of beta. The two loops close: your agents reach you when you're away,
+and work starts, gets reviewed, and lands — all without leaving Lume.
 
 ### Added
+- **New attempt — fork a repo into an isolated worktree.** Right-click a repo
+  session → **New attempt…**, pick a base branch, and Lume creates a git
+  worktree on a fresh `lume/<name>` branch under `~\lume\worktrees\<repo>\`,
+  opens a session there, and groups it under the repo. Your repo never moves;
+  a running agent is never rug-pulled by an in-place checkout. A one-time hint
+  reminds you to install deps in the fresh worktree (Lume never runs it for
+  you). The base picker and creation surface match the app's popover language.
+- **Diff tab — review what your agents did (`Ctrl+Shift+D`).** A read-only,
+  git-powered review surface: a changed-files list with status glyphs and
+  side-by-side / unified diffs rendered with `@codemirror/merge`, syntax-
+  highlighted, refreshing while open. Multi-repo sessions get a repo dropdown;
+  every git call runs with a hard timeout and no console flash. "Open in editor"
+  jumps any file into an editable tab.
+- **The editor opens any file, not just Markdown.** Open code from the drawer,
+  tree, or `Ctrl+O` into syntax-highlighted, editable tabs (languages load
+  lazily, off first paint). The agent-safety loop closes inside Lume: when an
+  agent rewrites a file you have open, a clean tab silently reloads and a dirty
+  tab raises a **"Changed on disk — Reload / Keep mine"** bar rather than
+  silently losing your edits. Binaries are refused; files over 10 MB are never
+  read.
+- **Session resume across restarts.** A pane that was running an agent when
+  Lume closed shows a slim **`✻ Claude was running here — Resume / Just shell`**
+  banner on the next launch; Resume drops you back into the exact conversation
+  (`claude --resume <id>`, or `--continue` when the id can't be trusted).
+  Settings → Agents → "Auto-resume agents on restore" (default OFF) stands the
+  whole fleet back up unattended.
+- **Pane zoom — `Ctrl+Alt+Z` or the corner button.** Temporarily fill the
+  session with one pane and press again to restore the exact grid. Pure CSS
+  occlusion — no terminal ever unmounts — and zoom follows focus, so any focus
+  move, split, close, or session switch brings the grid back (tmux `prefix z`).
 - **Branch switcher in the status bar.** The `⎇ branch` display is now a real
+  control: click it to see every branch (locals, then remotes, type-to-filter,
+  current marked, "open" tag on branches a worktree already has) and selecting
+  one takes you to a terminal ON that branch — jumping to its existing session,
+  or checking it out into its own worktree (`~\lume\worktrees\<repo>\<slug>`)
+  and opening a session there. Remote-only branches get a local tracking
+  branch. Never an in-place `git checkout`: the files under a running agent
+  are never touched, and git's one-branch-one-worktree rule keeps two
+  terminals from ever writing to the same branch.
+- **Terminal credibility floor (Plan 012).** Three daily-driver basics, each an The `⎇ branch` display is now a real
   control: click it to see every branch (locals, then remotes, type-to-filter,
   current marked, "open" tag on branches a worktree already has) and selecting
   one takes you to a terminal ON that branch — jumping to its existing session,
@@ -73,6 +115,26 @@ The dot leaves the window.
   window is focused and the session is on-screen, and throttled by a 3 s global
   min-gap. Only deterministic class-A signals ever escape — output heuristics
   never do. All native attention calls are best-effort no-ops on failure.
+
+### Performance
+- **Every git, `gh`, and file-I/O command now runs off the main thread.** Tauri
+  v2 runs synchronous commands on the UI thread, so a slow `git` (the branch
+  poller fires one every 5 s) or a cloud-only OneDrive file hydrating on first
+  read could block the whole IPC queue — including each keystroke — and the
+  terminal would freeze, then flood back. All 17 git/gh commands and the four
+  file-I/O commands now hop onto the blocking pool via `spawn_blocking`;
+  keystrokes (`pty_write`) stay on the fast path. No more freeze-then-catch-up.
+
+### Fixed
+- Resume only trusts a session id once real conversation content proves it
+  exists on disk, so an empty session can never leave a "No conversation found"
+  id — and never clobbers the previous real conversation's id.
+- Cleanup stops an attempt's session before removing its worktree (an open cwd
+  locks the directory on Windows), with a brief retry for async PTY teardown.
+- The multiline-paste guard covers every paste path, including drag-dropped
+  file paths.
+- The status bar keeps the session label and branch chip together at the
+  bottom-left, and shows the active session even before a pane is clicked.
 
 ## [0.1.0-beta.10] — 2026-07-02
 

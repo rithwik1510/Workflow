@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rithwik1510/Lume/releases"><img alt="Status" src="https://img.shields.io/badge/status-beta-5fa8ff?style=flat-square&labelColor=0a0a0a" /></a>
-  <a href="https://github.com/rithwik1510/Lume/releases/tag/v0.1.0-beta.10"><img alt="Version" src="https://img.shields.io/badge/version-v0.1.0--beta.10-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
+  <a href="https://github.com/rithwik1510/Lume/releases"><img alt="Status" src="https://img.shields.io/badge/status-stable-5fa8ff?style=flat-square&labelColor=0a0a0a" /></a>
+  <a href="https://github.com/rithwik1510/Lume/releases/tag/v0.1.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.1.0-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
   <a href="https://github.com/rithwik1510/Lume/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows_·_mac/linux_soon-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-v2-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" />
@@ -68,8 +68,8 @@ One window. Tiled terminals that don't tear when every pane streams at once. A m
 ### 02 · Tiling
 **Split without the seams.** One pane becomes many. Every pane keeps streaming; nothing reflows with a jolt. Split right, split down, move focus — all from the keyboard.
 
-### 03 · Markdown
-**Read what they write.** Agents think in markdown. Lume renders it beside your panes — watch a plan take shape as it's written, then watch it get done. `Ctrl+Click` any file path to open it, `Ctrl+E` to edit, `Ctrl+Shift+M` for the Quick Viewer.
+### 03 · Files & markdown
+**Read what they write — and edit it.** Agents think in markdown; Lume renders it beside your panes so you watch a plan take shape, then watch it get done. The same editor opens **any** code file with syntax highlighting (`Ctrl+O`, the drawer, or `Ctrl+Click` a path) — and when an agent rewrites a file you have open, a clean tab reloads and a dirty tab asks *Reload or Keep mine* instead of losing your edits.
 
 ### 04 · Keyboard-first
 **Your hands never leave home row.** Every action has a key. Rebind any of them in `config.toml`.
@@ -79,6 +79,12 @@ One window. Tiled terminals that don't tear when every pane streams at once. A m
 
 ### 06 · Agent awareness
 **Know exactly what each agent is doing — without guessing.** Turn on **Precise Claude Code signals** (Settings → Agents) and Lume installs Claude Code hooks so every session announces its own state. A background pane's dot then means something exact: a hollow accent ring when the agent is *blocked on a permission prompt*, a steady accent dot when a *turn is complete and it's your move*, the tumbling square while it's *working*. Blocked and your-move counts roll up into the status bar, so nothing needing you is ever hidden. And when Lume is minimized, those signals **leave the window**: a permission block raises a system toast and flashes the taskbar, and a taskbar badge carries the fleet's needs-you count — so you can walk away and still get pulled back the moment an agent needs you (Settings → Agents → "OS notifications", on by default). Opt-in, additive, and fully reversible — it merges into `~/.claude/settings.json` and removes itself cleanly.
+
+### 07 · Start, review & land — without leaving
+**A task is a branch, a branch is a terminal.** Fork any repo into an isolated git **worktree** on its own branch (**New attempt…**) so agents never step on each other — your repo never moves. Review everything an agent changed in the **Diff tab** (`Ctrl+Shift+D`), then **Land** it: open a PR (`gh`) or merge locally when it's provably safe, and clean up the worktree — Lume never forces, stashes, or guesses. Switch branches straight from the status bar: click `⎇ branch` and land in a terminal on any branch, worktree-backed.
+
+### 08 · Never lose your place
+**Close it, come back, keep going.** A pane that was running an agent offers to **resume the exact conversation** on the next launch (or auto-resume the whole fleet). `Ctrl+F` searches any pane's scrollback; `Ctrl+Alt+Z` zooms one pane full-screen and back; `Ctrl+Click` opens URLs in your browser; a paste with newlines asks first.
 
 <p align="center">
   <img src="./assets/themes.svg" alt="Lume theme palettes — Cobalt, Coral, Tokyo Night, Gruvbox" width="100%" />
@@ -98,7 +104,7 @@ npx lume-desktop
 
 Or grab `Lume_<version>_x64-setup.exe` from the [Releases page](https://github.com/rithwik1510/Lume/releases) and run it.
 
-> ⚠️ The installer is **unsigned during beta**. Windows SmartScreen shows *"Windows protected your PC."* Click **More info → Run anyway**. It installs to your user profile (no admin needed) and auto-updates itself from then on.
+> ⚠️ The installer is **not yet code-signed**. Windows SmartScreen shows *"Windows protected your PC."* Click **More info → Run anyway**. It installs to your user profile (no admin needed) and auto-updates itself from then on.
 >
 > Windows 11 ships the WebView2 runtime Lume needs. On older Windows 10, install the [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) first.
 
@@ -230,13 +236,17 @@ spike-archive/        Weekend 0 spike source (preserved for reference)
 
 ## Roadmap
 
-- [x] Windows public beta
+- [x] Windows 0.1.0 — first stable release
 - [x] Visibility-driven render governor (bound cost to on-screen sessions)
-- [x] OSC 133 agent attention system
-- [x] Session restore
+- [x] Precise agent attention — in-window signals + OS toasts/badge when away
+- [x] Session restore & agent resume across restarts
+- [x] Pane-level scrollback search (`Ctrl+F`)
+- [x] The task loop — worktree attempts, Diff review, and Land
+- [x] Code editor with agent-safe external-change handling
+- [ ] Code signing (remove the SmartScreen prompt)
 - [ ] macOS support
 - [ ] Linux support
-- [ ] Pane-level scrollback search
+- [ ] Codex & Gemini precise signals (first-class, like Claude Code)
 - [ ] Configurable per-pane shells & profiles
 
 ---
