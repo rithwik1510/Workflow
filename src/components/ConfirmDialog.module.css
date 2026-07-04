@@ -62,6 +62,24 @@
   line-height: 1.5;
 }
 
+/* Monospace preview block (multiline-paste guard, Plan 012). Newlines preserved
+ * so the pasted lines read verbatim; scrolls when the snippet is tall/wide. */
+.preview {
+  margin: 0 var(--space-3) var(--space-3);
+  padding: var(--space-2);
+  max-height: 160px;
+  overflow: auto;
+  background: var(--bg-0, #0a0a0a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-1, #9a9a9a);
+  white-space: pre;
+  tab-size: 4;
+}
+
 .footer {
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border);

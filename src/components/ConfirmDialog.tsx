@@ -80,6 +80,7 @@ export function ConfirmDialog() {
           {req.title}
         </div>
         <div className={styles.body}>{req.message}</div>
+        {req.preview && <pre className={styles.preview}>{req.preview}</pre>}
         <div className={styles.footer}>
           <button
             type="button"

@@ -27,9 +27,12 @@ import { registerMdLinkProvider } from "@/terminals/mdLinkProvider";
 import { RendererPool } from "@/terminals/webglPool";
 import { shouldRenderLive } from "@/terminals/visibility";
 import { handleWebLink } from "@/terminals/webLinkHandler";
+import { guardedPaste } from "@/terminals/pasteGuard";
 import { openExternal } from "@/lib/openExternal";
 import type { PaneId } from "@/types";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePrefsStore } from "@/store/prefsStore";
+import { useConfirmStore } from "@/store/confirmStore";
 
 interface TerminalEntry {
   term: Terminal;
@@ -188,7 +191,7 @@ export function getOrCreateTerminal(paneId: PaneId): Terminal {
     if (key === "v") {
       e.preventDefault();
       void readClipboardText().then((text) => {
-        if (text) term.paste(text);
+        if (text) pasteIntoTerminal(paneId, text);
       });
       return false;
     }
@@ -298,6 +301,21 @@ export function onTerminalSearchResults(
   const entry = entries.get(paneId);
   if (!entry) return null;
   return entry.search.onDidChangeResults(handler);
+}
+
+/**
+ * Paste `text` into the pane's Terminal, gated by the multiline-paste guard
+ * (Plan 012). The single place both paste entry points (Ctrl+V keydown and the
+ * right-click Paste item) route through, so the guard can never be bypassed.
+ * The text handed to the pty is byte-identical to the input.
+ */
+export function pasteIntoTerminal(paneId: PaneId, text: string): void {
+  const entry = entries.get(paneId);
+  if (!entry) return;
+  void guardedPaste(text, (t) => entry.term.paste(t), {
+    warnMultiline: usePrefsStore.getState().warnMultilinePaste,
+    confirm: (req) => useConfirmStore.getState().confirm(req),
+  });
 }
 
 /**

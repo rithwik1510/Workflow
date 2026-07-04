@@ -27,11 +27,15 @@ export interface PrefsState {
    *  the badge. Default OFF — turn-complete is calmer than a permission block,
    *  so the toast is opt-in. */
   toastOnTurnComplete: boolean;
+  /** When ON (default), pasting text that contains a newline into a terminal
+   *  asks first — a stray multiline paste EXECUTES in most shells (Plan 012). */
+  warnMultilinePaste: boolean;
 }
 
 interface PrefsActions {
   setOsNotifications: (on: boolean) => void;
   setToastOnTurnComplete: (on: boolean) => void;
+  setWarnMultilinePaste: (on: boolean) => void;
   reset: () => void;
 }
 
@@ -40,6 +44,7 @@ export type PrefsStore = PrefsState & PrefsActions;
 const DEFAULTS: PrefsState = {
   osNotifications: true,
   toastOnTurnComplete: false,
+  warnMultilinePaste: true,
 };
 
 export const usePrefsStore = create<PrefsStore>()(
@@ -57,10 +62,16 @@ export const usePrefsStore = create<PrefsStore>()(
           s.toastOnTurnComplete = on;
         }),
 
+      setWarnMultilinePaste: (on) =>
+        set((s) => {
+          s.warnMultilinePaste = on;
+        }),
+
       reset: () =>
         set((s) => {
           s.osNotifications = DEFAULTS.osNotifications;
           s.toastOnTurnComplete = DEFAULTS.toastOnTurnComplete;
+          s.warnMultilinePaste = DEFAULTS.warnMultilinePaste;
         }),
     })),
     {
@@ -72,6 +83,7 @@ export const usePrefsStore = create<PrefsStore>()(
       partialize: (state) => ({
         osNotifications: state.osNotifications,
         toastOnTurnComplete: state.toastOnTurnComplete,
+        warnMultilinePaste: state.warnMultilinePaste,
       }),
     }
   )

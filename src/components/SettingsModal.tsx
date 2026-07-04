@@ -85,6 +85,10 @@ export function SettingsModal() {
   const setOsNotifications = usePrefsStore((s) => s.setOsNotifications);
   const toastOnTurnComplete = usePrefsStore((s) => s.toastOnTurnComplete);
   const setToastOnTurnComplete = usePrefsStore((s) => s.setToastOnTurnComplete);
+
+  // Multiline-paste guard (Plan 012). Behavioral UI pref → prefsStore.
+  const warnMultilinePaste = usePrefsStore((s) => s.warnMultilinePaste);
+  const setWarnMultilinePaste = usePrefsStore((s) => s.setWarnMultilinePaste);
   useEffect(() => {
     if (!open) return;
     void claudeHooksStatus()
@@ -240,6 +244,17 @@ export function SettingsModal() {
                   <Stepper ariaLabel="Scrollback lines" value={config.terminal.scrollback_lines} min={1000} max={100000} step={1000}
                     onChange={(v) => set("terminal.scrollback_lines", v)} />
                 } />
+                <SettingRow
+                  label="Warn on multiline paste"
+                  description="Ask before pasting text that contains a line break — most shells run each completed line the instant it's pasted, so this catches an accidental multi-command paste."
+                  control={
+                    <Toggle
+                      ariaLabel="Warn on multiline paste"
+                      checked={warnMultilinePaste}
+                      onChange={setWarnMultilinePaste}
+                    />
+                  }
+                />
               </>
             )}
 

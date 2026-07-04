@@ -15,6 +15,9 @@ import { devtools } from "zustand/middleware";
 export interface ConfirmRequest {
   title: string;
   message: string;
+  /** Optional monospace, newline-preserving block rendered under the message —
+   *  e.g. the multiline-paste preview (Plan 012). Scrolls if tall. */
+  preview?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   /** When true, the confirm button is rendered with the danger style and

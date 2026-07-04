@@ -22,6 +22,7 @@ import {
   fitTerminal,
   focusTerminal,
   getOrCreateTerminal,
+  pasteIntoTerminal,
   resetMouseModes,
 } from "@/terminals/registry";
 import { PaneResumeBanner } from "@/components/PaneResumeBanner";
@@ -180,7 +181,7 @@ function TerminalPaneImpl({ paneId }: Props) {
       label: "Paste",
       onClick: () =>
         void readClipboardText().then((text) => {
-          if (text) term.paste(text);
+          if (text) pasteIntoTerminal(paneId, text);
         }),
     });
     items.push({ label: "", separator: true });
