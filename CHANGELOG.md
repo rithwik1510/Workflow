@@ -4,6 +4,33 @@ All notable changes to Lume are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+The dot leaves the window.
+
+### Added
+- **OS attention escape (Plan 011).** Plan 008's precise agent signals now
+  reach you when Lume is minimized or in the background. When a Claude Code
+  agent is **blocked on a permission prompt**, Lume raises a system toast
+  (`⏸ Claude needs permission`, with the session name), flashes the taskbar
+  button once (focus-preserving), and shows a **taskbar overlay badge** with the
+  fleet's needs-you count. A completed turn (**your move**) updates the badge
+  only — opt into a toast for it with Settings → Agents → "Toast on turn
+  complete" (default OFF).
+- **Two new Settings → Agents toggles.** "OS notifications" (default ON) is the
+  master switch for the whole escape surface — off keeps every signal in-app and
+  clears the badge. "Toast on turn complete" (default OFF) upgrades the calmer
+  your-move tier to a toast.
+
+### Changed
+- The taskbar badge and the status-bar needs-you chip now derive from a single
+  shared `needsYouCounts` selector, so they can never disagree about how many
+  sessions need you. The badge always mirrors the current count; toasts and the
+  flash are edge-triggered (fire on *entering* a phase), suppressed when the
+  window is focused and the session is on-screen, and throttled by a 3 s global
+  min-gap. Only deterministic class-A signals ever escape — output heuristics
+  never do. All native attention calls are best-effort no-ops on failure.
+
 ## [0.1.0-beta.10] — 2026-07-02
 
 Lume learns exactly what your agents are doing.

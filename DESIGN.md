@@ -310,6 +310,33 @@ Triggers (v0.1):
 - `warn`: file modified externally (with [Reload] / [Keep mine] action buttons), config invalid value (previous kept), MD Link path missing.
 - `error`: PTY spawn failed (inline-in-pane is primary; toast is backup), config parse error, save failed.
 
+### OS attention escape (Plan 011)
+
+The in-app toasts above only reach you when Lume is on screen. Plan 008's
+deterministic class-A agent signals *also* escape the window so the fleet can
+reach you when Lume is minimized or in the background:
+
+- **Permission block** (an agent is waiting on your approval) → an OS toast
+  (`⏸ <Agent> needs permission`, body = session name) + a one-shot taskbar
+  flash + the badge.
+- **Your move** (turn complete) → the taskbar badge only, by default. Settings →
+  Agents → "Toast on turn complete" (default OFF) upgrades it to a toast (never
+  a flash).
+- **Taskbar overlay badge** always mirrors the fleet needs-you count
+  (permission + your-move across background sessions), drawn from the *same*
+  `needsYouCounts` selector the status bar chip uses — the two can never
+  disagree. Counts render 1–9, then "9+".
+
+Rules (locked): only class-A signals ever escape (heuristics never do); escape
+is edge-triggered (fires on *entering* a phase, never on staying); it is
+suppressed when the window is focused **and** the session is visible (the
+sidebar dot already covers that); a 3 s global min-gap throttles toasts (flash
+and badge are exempt). The master "OS notifications" toggle (Settings → Agents,
+default ON) gates the whole surface, badge included. All native calls are
+best-effort no-ops on failure — attention code never crashes the app. The
+decision logic is a pure function (`sessions/attentionEscape.decideEscape`);
+the Windows taskbar affordances live in Rust (`src-tauri/src/attention.rs`).
+
 ---
 
 ## 9. Success criteria
