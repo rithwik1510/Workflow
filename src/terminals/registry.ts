@@ -14,6 +14,7 @@ import type { IDisposable, ITerminalOptions } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { readClipboardText, writeClipboardText } from "@/lib/clipboardClient";
 import { noteBell } from "@/sessions/attentionTracker";
@@ -25,6 +26,8 @@ import "@/styles/xterm-overrides.css";
 import { registerMdLinkProvider } from "@/terminals/mdLinkProvider";
 import { RendererPool } from "@/terminals/webglPool";
 import { shouldRenderLive } from "@/terminals/visibility";
+import { handleWebLink } from "@/terminals/webLinkHandler";
+import { openExternal } from "@/lib/openExternal";
 import type { PaneId } from "@/types";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -205,6 +208,16 @@ export function getOrCreateTerminal(paneId: PaneId): Terminal {
   const search = new SearchAddon({ highlightLimit: 2000 });
   term.loadAddon(search);
 
+  // Web links — Ctrl+click an http(s) URL in output to open it in the OS
+  // browser. Plain click stays with the shell's mouse modes (see
+  // webLinkHandler.ts). Never navigates the webview. Disposed with the
+  // Terminal by xterm's addon manager.
+  const webLinks = new WebLinksAddon(
+    (event, uri) => handleWebLink(event, uri, (url) => void openExternal(url)),
+    { urlRegex: HTTP_URL_REGEX }
+  );
+  term.loadAddon(webLinks);
+
   entries.set(paneId, {
     term,
     fit,
@@ -215,6 +228,15 @@ export function getOrCreateTerminal(paneId: PaneId): Terminal {
   });
   return term;
 }
+
+/**
+ * URL matcher for the web-links addon — http/https only (Plan 012). The addon's
+ * default regex also underlines ftp/file/… which our handler refuses to open;
+ * scoping it here means only openable links get the hover-underline affordance.
+ * Kept intentionally close to the addon's own pattern (no trailing punctuation).
+ */
+const HTTP_URL_REGEX =
+  /https?:\/\/[\w\-@;/?:&=%$.+!*'(),~#]+[\w\-@;/?:&=%$+*~#]/;
 
 /** Concrete #RRGGBB search-highlight colours derived from the ACTIVE theme —
  *  xterm decorations require literal hex (matchBackground: "must use #RRGGBB"),
