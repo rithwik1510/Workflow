@@ -20,8 +20,18 @@
   gap: var(--space-3);
 }
 
-.left {
+/* Left cluster: session text + the branch chip hugging it. The GROUP grows
+ * (pushing .right to the edge); the text inside shrinks-to-fit with ellipsis
+ * so the chip always sits right beside it, not across the bar. */
+.leftGroup {
   flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.left {
+  flex: 0 1 auto;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;

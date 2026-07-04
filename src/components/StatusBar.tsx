@@ -67,22 +67,26 @@ export function StatusBar() {
     left = qvPath ? shortName(qvPath) : "Quick Viewer";
   } else if (focusedSurface === "sidebar") {
     left = workspaceFolder ?? "";
-  } else if (focusedSurface === "terminal" && focusedPaneId !== null) {
+  } else if (
+    (focusedSurface === "terminal" || focusedSurface === null) &&
+    activeSession !== null
+  ) {
     // §12: "<group label> / <session name> · <shell>". The branch is no longer
     // part of this string — it's the persistent BranchSwitcher chip rendered
-    // beside it (a real control, not display text). Per-pane cwd is NOT
-    // tracked in v1 — the old cwd column is dropped until OSC 7 lands (v1.2).
-    const meta = panes[focusedPaneId];
+    // right beside it (a real control, not display text). This cluster also
+    // shows when NOTHING has focus yet (fresh launch, chrome clicks): the bar
+    // describes the ACTIVE session, and requiring a pane click just made the
+    // bar sit empty next to a visible branch chip. Per-pane cwd is NOT tracked
+    // in v1 — the old cwd column is dropped until OSC 7 lands (v1.2).
+    const meta = focusedPaneId !== null ? panes[focusedPaneId] : undefined;
     const parts: string[] = [];
-    if (activeSession) {
-      const groupLabel =
-        groupLabels[activeSession.folderPath] ?? basename(activeSession.folderPath);
-      parts.push(`${groupLabel} / ${activeSession.name}`);
-    }
+    const groupLabel =
+      groupLabels[activeSession.folderPath] ?? basename(activeSession.folderPath);
+    parts.push(`${groupLabel} / ${activeSession.name}`);
     if (meta) parts.push(shellLabel(meta.shell));
-    left = parts.length > 0 ? parts.join("  ·  ") : "Terminal";
+    left = parts.join("  ·  ");
   } else {
-    // No focused surface yet (e.g. first launch before anything has focus).
+    // No focused surface and no active session (true cold start).
     left = workspaceFolder ?? "";
   }
 
@@ -111,12 +115,16 @@ export function StatusBar() {
 
   return (
     <div className={styles.root} aria-label="Status Bar">
-      <div className={styles.left} title={left}>
-        {left}
+      {/* One left-hugging cluster: the session text with the branch chip right
+          beside it (where the old `⎇` text lived). The chip is a persistent
+          control: click → picker → a terminal ON that branch, worktree-backed,
+          never an in-place switch. */}
+      <div className={styles.leftGroup}>
+        <div className={styles.left} title={left}>
+          {left}
+        </div>
+        <BranchSwitcher />
       </div>
-      {/* Persistent branch control (not display text): click → picker → a
-          terminal ON that branch, worktree-backed, never an in-place switch. */}
-      <BranchSwitcher />
       <div className={styles.right}>
         {(blockedCount > 0 || yourMoveCount > 0) && (
           <span
