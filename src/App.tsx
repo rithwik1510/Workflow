@@ -41,6 +41,7 @@ import { TopBar } from "@/components/TopBar";
 import { beginResize, endResize } from "@/components/resizeBus";
 import { installBranchPoller } from "@/sessions/branchPoller";
 import { installAgentTracker } from "@/sessions/agentTracker";
+import { installAttentionEscape } from "@/sessions/attentionEscape";
 import { onCommandEvent } from "@/sessions/commandTracker";
 import { runMigrationIfNeeded } from "@/sessions/migration";
 import { leaves } from "@/store/layout/tree";
@@ -157,6 +158,10 @@ export default function App() {
     // `agent-event` stream so hooked Claude Code sessions drive the sidebar's
     // precise signals instead of the output-cadence guess.
     const disposeAgentTracker = installAgentTracker();
+    // Attention escape (Plan 011): carry the class-A signals OUT of the window —
+    // OS toast on a permission block, taskbar flash, and an overlay badge with
+    // the fleet needs-you count — for the minimized/unfocused case.
+    const disposeAttentionEscape = installAttentionEscape();
     let cancelResume: (() => void) | undefined;
 
     const bootstrap = async () => {
@@ -241,6 +246,7 @@ export default function App() {
     return () => {
       if (unsubFinishHydration) unsubFinishHydration();
       cancelResume?.();
+      disposeAttentionEscape();
       disposeAgentTracker();
       disposePoller();
       disposeGovernor();

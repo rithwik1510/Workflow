@@ -8,7 +8,11 @@
 // "active" regardless of what its agents are doing.
 
 import { leaves as treeLeaves } from "@/store/layout/tree";
-import type { Session } from "@/store/sessionsStore";
+import {
+  getVisibleSessionIds,
+  type Session,
+  type SessionsState,
+} from "@/store/sessionsStore";
 import type { AgentName, AgentPhase, PaneAgent } from "@/store/agentStore";
 import type { PaneId } from "@/types";
 
@@ -71,6 +75,42 @@ export function computeSessionSignal(input: {
   if (input.agentSignal === "your-move" || input.unread) return "your-move";
   if (input.agentSignal === "working" || input.working) return "working";
   return "idle";
+}
+
+/** The fleet needs-you roll-up: across ALL sessions, how many are blocked on a
+ *  permission prompt vs. waiting for your move. The visible session(s) never
+ *  signal (computeSessionSignal → "active"), so only background sessions count.
+ *
+ *  This is THE single source of truth for that count — the StatusBar chip and
+ *  Plan 011's taskbar badge both call it, so the two can never disagree about
+ *  how many sessions need you. Pure over its inputs (no store reads inside), so
+ *  callers can memoize on exactly the slices it depends on. */
+export interface NeedsYouCounts {
+  /** Background sessions blocked on a permission prompt (the urgent tier). */
+  permission: number;
+  /** Background sessions waiting for your move (turn complete / idle / unread). */
+  yourMove: number;
+}
+
+export function needsYouCounts(
+  agentPanes: Record<PaneId, PaneAgent>,
+  sessions: Iterable<Session>,
+  visibility: Pick<SessionsState, "splitView" | "activeSessionId">
+): NeedsYouCounts {
+  const visible = getVisibleSessionIds(visibility);
+  let permission = 0;
+  let yourMove = 0;
+  for (const sess of sessions) {
+    const signal = computeSessionSignal({
+      visible: visible.includes(sess.id),
+      unread: sess.unread,
+      working: sess.working,
+      agentSignal: sessionAgentView(agentPanes, sess).signal,
+    });
+    if (signal === "permission") permission++;
+    else if (signal === "your-move") yourMove++;
+  }
+  return { permission, yourMove };
 }
 
 /** Roll up several sessions' signals into the single most-urgent one for a

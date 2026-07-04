@@ -1,6 +1,7 @@
 // Lume Rust entry point.
 
 pub mod agent_events;
+pub mod attention;
 pub mod claude_hooks;
 pub mod config;
 pub mod editor_watch;
@@ -60,6 +61,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(pty::PtyRegistry::default())
         .manage(file_watcher::FileWatcherState::default())
@@ -117,6 +119,8 @@ pub fn run() {
             crate::claude_hooks::claude_hooks_status,
             crate::claude_hooks::install_claude_hooks,
             crate::claude_hooks::uninstall_claude_hooks,
+            crate::attention::set_needs_you_badge,
+            crate::attention::flash_taskbar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running lume");

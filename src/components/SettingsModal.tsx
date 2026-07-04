@@ -22,6 +22,7 @@ import {
 } from "@/lib/claudeHooksClient";
 import { useAgentStore } from "@/store/agentStore";
 import { usePaneResumeStore } from "@/store/paneResumeStore";
+import { usePrefsStore } from "@/store/prefsStore";
 import { useToastStore } from "@/store/toastStore";
 import { useMdStore } from "@/store/mdStore";
 import { detectShells, shellLabel, shellToConfigId } from "@/lib/shellsClient";
@@ -77,6 +78,13 @@ export function SettingsModal() {
   // sessions store's reopenLastSession), not a config.toml key.
   const autoResume = usePaneResumeStore((s) => s.autoResumeOnRestore);
   const setAutoResume = usePaneResumeStore((s) => s.setAutoResumeOnRestore);
+
+  // OS attention-escape prefs (Plan 011). Behavioral UI prefs → prefsStore, not
+  // config.toml (same reasoning as auto-resume above).
+  const osNotifications = usePrefsStore((s) => s.osNotifications);
+  const setOsNotifications = usePrefsStore((s) => s.setOsNotifications);
+  const toastOnTurnComplete = usePrefsStore((s) => s.toastOnTurnComplete);
+  const setToastOnTurnComplete = usePrefsStore((s) => s.setToastOnTurnComplete);
   useEffect(() => {
     if (!open) return;
     void claudeHooksStatus()
@@ -296,6 +304,28 @@ export function SettingsModal() {
                       ariaLabel="Auto-resume agents on restore"
                       checked={autoResume}
                       onChange={setAutoResume}
+                    />
+                  }
+                />
+                <SettingRow
+                  label="OS notifications"
+                  description="Let signals leave the window when Lume is minimized or in the background: a system toast when an agent is blocked on permission, a taskbar flash, and a taskbar badge with the fleet's needs-you count. Turn off to keep every signal in-app."
+                  control={
+                    <Toggle
+                      ariaLabel="OS notifications"
+                      checked={osNotifications}
+                      onChange={setOsNotifications}
+                    />
+                  }
+                />
+                <SettingRow
+                  label="Toast on turn complete"
+                  description="Also raise a system toast when an agent finishes its turn (your move), not just when it's blocked on permission. Off by default — turn-complete still shows the taskbar badge. Requires OS notifications on."
+                  control={
+                    <Toggle
+                      ariaLabel="Toast on turn complete"
+                      checked={toastOnTurnComplete}
+                      onChange={setToastOnTurnComplete}
                     />
                   }
                 />
