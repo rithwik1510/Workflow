@@ -45,7 +45,7 @@ export interface SidebarConfig {
 // "amber"` won't fail to parse (the Rust side keeps it as String); unknown
 // values fall back to the default theme at apply time.
 export interface ThemeConfig {
-  accent: "cobalt" | "coral" | "tokyo" | "gruvbox";
+  accent: "cobalt" | "coral" | "tokyo" | "gruvbox" | "nocturne";
 }
 
 export interface LogConfig {

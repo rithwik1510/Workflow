@@ -105,7 +105,7 @@ pub struct SidebarConfig {
 #[serde(deny_unknown_fields)]
 pub struct ThemeConfig {
     // Curated theme name from src/lib/themes.ts. v0.2 ships:
-    //   "cobalt" (default), "coral", "tokyo", "gruvbox"
+    //   "cobalt" (default), "coral", "tokyo", "gruvbox", "nocturne"
     // Kept as a String (not an enum) so an unknown legacy value like
     // "amber" still parses cleanly; the JS layer coerces unknown names
     // back to the default theme at apply time.
@@ -229,7 +229,7 @@ collapsed_dirs = [
 ]
 
 [theme]
-# One of: "cobalt" (default), "coral", "tokyo", "gruvbox"
+# One of: "cobalt" (default), "coral", "tokyo", "gruvbox", "nocturne"
 accent = "cobalt"
 
 [log]

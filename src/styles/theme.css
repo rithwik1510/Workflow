@@ -1,10 +1,11 @@
 /* Theme palettes — single source of truth for colour tokens.
  *
- * Four themes ship in v0.2:
+ * Five themes ship in v0.2:
  *   cobalt   — pure black + iOS electric blue (DEFAULT)
  *   coral    — neutral ash + warm coral
  *   tokyo    — deep navy + neon cyan/mauve (Tokyo Night)
  *   gruvbox  — warm umber + bright orange
+ *   nocturne — cool obsidian + periwinkle violet aurora
  *
  * The root :root block holds the cobalt palette so first paint is correct
  * before settings-driven JS sets a different data-theme attribute. Each
@@ -115,6 +116,36 @@
   --success-alpha: rgba(184, 187, 38, 0.3);
 
   --border: #504945;
+}
+
+:root[data-theme="nocturne"] {
+  /* Surfaces — obsidian, a cool blue-black (distinct from cobalt's neutral
+   * black and the warm coral/gruvbox grounds). */
+  --bg-0: #0b0c12;
+  --bg-1: #12141d;
+  --bg-2: #1b1e2b;
+  --bg-3: #262a3b;
+
+  --fg-0: #dfe2f2;
+  --fg-1: #9ba0bd;
+  --fg-2: #666c88;
+  --fg-3: #454a63;
+  --fg-heading: #f2f3ff;
+
+  /* Accent — periwinkle violet aurora. Underused in dev tools, reads as a
+   * light source on the obsidian ground, and stays clear of the green/red
+   * of agent state + diffs. */
+  --accent: #a78bfa;
+  --accent-alpha: rgba(167, 139, 250, 0.3);
+  --accent-dim: #7c5cf0;
+
+  /* Teal-green success keeps its distance from the violet accent; rose error
+   * is tuned to the cool palette rather than the shared warm red. */
+  --error: #f2789a;
+  --success: #79d1a8;
+  --success-alpha: rgba(121, 209, 168, 0.3);
+
+  --border: #262a3b;
 }
 
 /* Shared, theme-independent tokens — these never change per theme. */

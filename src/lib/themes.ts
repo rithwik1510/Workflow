@@ -8,7 +8,7 @@
 
 import type { ITheme } from "@xterm/xterm";
 
-export const THEME_NAMES = ["cobalt", "coral", "tokyo", "gruvbox"] as const;
+export const THEME_NAMES = ["cobalt", "coral", "tokyo", "gruvbox", "nocturne"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 
 export const DEFAULT_THEME: ThemeName = "cobalt";

@@ -48,6 +48,7 @@ const ACCENT_PRESETS: { id: ThemeName; label: string; color: string }[] = [
   { id: "coral", label: "Coral", color: "#ff8a65" },
   { id: "tokyo", label: "Tokyo Night", color: "#7dcfff" },
   { id: "gruvbox", label: "Gruvbox", color: "#fe8019" },
+  { id: "nocturne", label: "Nocturne", color: "#a78bfa" },
 ];
 
 export function SettingsModal() {

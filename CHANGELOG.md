@@ -38,6 +38,12 @@ and work starts, gets reviewed, and lands — all without leaving Lume.
   (`claude --resume <id>`, or `--continue` when the id can't be trusted).
   Settings → Agents → "Auto-resume agents on restore" (default OFF) stands the
   whole fleet back up unattended.
+- **Nocturne theme.** A fifth palette — periwinkle violet on a cool obsidian
+  ground — joins Cobalt, Coral, Tokyo Night, and Gruvbox (Settings → Themes).
+- **Legible diffs.** The Diff tab and merge view now paint changes in strong
+  red/green line bands with a solid gutter stripe and highlighted inline tokens
+  — `@codemirror/merge`'s default 8%-opacity tints were nearly invisible on
+  Lume's near-black surface.
 - **Pane zoom — `Ctrl+Alt+Z` or the corner button.** Temporarily fill the
   session with one pane and press again to restore the exact grid. Pure CSS
   occlusion — no terminal ever unmounts — and zoom follows focus, so any focus

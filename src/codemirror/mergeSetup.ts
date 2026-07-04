@@ -25,6 +25,62 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 
 import { lumeTheme } from "@/codemirror/theme";
 
+// GitHub/Codex-style diff coloring.
+//
+// @codemirror/merge's built-in change backgrounds are ~8% opacity (`rgba(160,
+// 128, 100, .08)` for removed, `rgba(100, 160, 128, .08)` for added) — tuned for
+// a LIGHT editor. On our near-black diff surface (--bg-0 #0a0a0a) an 8% tint is
+// effectively invisible, so "what changed" never reads. We override with
+// stronger, token-hued bands (red = old/deleted side, green = new/added side),
+// a solid gutter bar so the changed ROW catches the eye, and a brighter inline
+// highlight on the exact tokens that changed. This theme is added AFTER the
+// library's baseTheme, so on equal specificity these rules win.
+//
+// Colors trace our design tokens: --success #7fc26b (green), --error #e85a5a
+// (red). Kept as literals (not var()) because CodeMirror injects theme rules
+// into a managed stylesheet where a failed var() would silently drop the whole
+// band — the exact invisibility we're fixing.
+const DEL_LINE = "rgba(232, 90, 90, 0.14)"; // removed line band
+const DEL_TOKEN = "rgba(232, 90, 90, 0.32)"; // removed inline token
+const DEL_BAR = "#c74a4a"; // removed gutter bar
+const ADD_LINE = "rgba(127, 194, 107, 0.14)"; // added line band
+const ADD_TOKEN = "rgba(127, 194, 107, 0.30)"; // added inline token
+const ADD_BAR = "#5aa347"; // added gutter bar
+
+const diffTheme = EditorView.theme(
+  {
+    // Whole-line bands. In split view each side editor root carries cm-merge-a
+    // (old) / cm-merge-b (new); in unified view the doc editor is cm-merge-b and
+    // removals render as .cm-deletedChunk / .cm-deletedLine widgets.
+    "&.cm-merge-a .cm-changedLine, .cm-deletedChunk, .cm-deletedLine": {
+      backgroundColor: DEL_LINE,
+    },
+    "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine, .cm-insertedLine": {
+      backgroundColor: ADD_LINE,
+    },
+    // Inline changed tokens — a solid fill (the default is a 2px underline that's
+    // hard to see) so the exact edit within a line stands out.
+    "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText, .cm-deletedText":
+      {
+        background: DEL_TOKEN,
+        borderRadius: "2px",
+      },
+    "&.cm-merge-b .cm-changedText, .cm-insertedLine .cm-changedText": {
+      background: ADD_TOKEN,
+      borderRadius: "2px",
+    },
+    // Gutter change bars: widen and make solid so the changed rows read as a
+    // continuous stripe down the edge (GitHub's colored gutter).
+    ".cm-changeGutter": { width: "4px", paddingLeft: "0" },
+    "&.cm-merge-a .cm-changedLineGutter, .cm-deletedLineGutter": {
+      background: DEL_BAR,
+    },
+    "&.cm-merge-b .cm-changedLineGutter": { background: ADD_BAR },
+    ".cm-inlineChangedLineGutter": { background: ADD_BAR },
+  },
+  { dark: true }
+);
+
 export interface BuildDiffOptions {
   parent: HTMLElement;
   oldText: string;
@@ -50,6 +106,7 @@ function baseExtensions(language: Extension): Extension[] {
     foldGutter(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     lumeTheme,
+    diffTheme,
     EditorState.readOnly.of(true),
     EditorView.editable.of(false),
     EditorView.lineWrapping,
