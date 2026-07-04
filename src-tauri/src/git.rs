@@ -36,7 +36,11 @@ const BRANCH_TIMEOUT: Duration = Duration::from_secs(2);
 const DIFF_TIMEOUT: Duration = Duration::from_secs(10);
 /// `worktree add` checks out a full working tree into a new directory — on a
 /// large repo that's real disk work, so it gets the most generous deadline.
+/// `worktree remove` and `merge` touch the working tree too — same headroom.
 const WORKTREE_TIMEOUT: Duration = Duration::from_secs(120);
+/// `gh pr create` hits the network — a stingy deadline would spuriously fail on
+/// a slow link. gh's own auth/errors still surface via captured stderr.
+const GH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// CREATE_NO_WINDOW — suppress the console window Windows would otherwise flash
 /// for every `git` spawn. See the module header; this is non-negotiable.
@@ -53,35 +57,45 @@ fn looks_binary(bytes: &[u8]) -> bool {
     head.contains(&0)
 }
 
-/// Core spawn for `git <args>` in `dir`, always capturing stdout, with a hard
-/// timeout and the Windows console-suppression flag. Returns None on spawn
+/// Core spawn for `<program> <args>` in `dir`, always capturing stdout, with a
+/// hard timeout and the Windows console-suppression flag. Returns None on spawn
 /// failure or timeout.
 ///
-/// `capture_stderr` decides whether git's stderr is piped into the returned
-/// Output or discarded. The read-only pollers null it (any failure is just "no
-/// data" — not a repo, path missing, detached HEAD, …), but the MUTATING
-/// commands (worktree add) need git's stderr verbatim so the UI can show its
-/// precise message ("branch already exists", "invalid reference", …). This
-/// opt-in keeps the existing null-stderr behaviour for every current caller.
-fn run_git_inner(
+/// Generalised over the program so the `gh` CLI (Plan 013 Land) shares git's
+/// exact spawn discipline — CREATE_NO_WINDOW is program-agnostic and the
+/// console-flash bug class already shipped once (see the module header). An
+/// empty `dir` inherits the process CWD (`gh --version` needs no repo).
+///
+/// `capture_stderr` decides whether the child's stderr is piped into the
+/// returned Output or discarded. The read-only pollers null it (any failure is
+/// just "no data" — not a repo, path missing, detached HEAD, …), but the
+/// MUTATING commands (worktree add/remove, merge, branch -d, gh pr create) need
+/// stderr verbatim so the UI can show the precise message. This opt-in keeps the
+/// existing null-stderr behaviour for every read-only caller.
+fn run_tool(
+    program: &str,
     dir: &str,
     args: &[&str],
     timeout: Duration,
     capture_stderr: bool,
 ) -> Option<Output> {
+    let program = program.to_string();
     let dir = dir.to_string();
     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let mut cmd = Command::new("git");
+        let mut cmd = Command::new(&program);
         cmd.args(&args)
-            .current_dir(&dir)
             .stdout(Stdio::piped())
             .stderr(if capture_stderr {
                 Stdio::piped()
             } else {
                 Stdio::null()
             });
+        // Empty dir = inherit the process CWD (a bare `gh --version` probe).
+        if !dir.is_empty() {
+            cmd.current_dir(&dir);
+        }
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         // Receiver may already be gone (we timed out) — ignore the send error.
@@ -90,10 +104,38 @@ fn run_git_inner(
     rx.recv_timeout(timeout).ok()?.ok()
 }
 
-/// Read-only spawn: stderr discarded (see `run_git_inner`). Every observation
-/// command in this module goes through here.
+/// Spawn `git <args>` with the shared discipline. `capture_stderr` per `run_tool`.
+fn run_git_inner(
+    dir: &str,
+    args: &[&str],
+    timeout: Duration,
+    capture_stderr: bool,
+) -> Option<Output> {
+    run_tool("git", dir, args, timeout, capture_stderr)
+}
+
+/// Read-only spawn: stderr discarded (see `run_tool`). Every observation command
+/// in this module goes through here.
 fn run_git(dir: &str, args: &[&str], timeout: Duration) -> Option<Output> {
     run_git_inner(dir, args, timeout, false)
+}
+
+/// Pull git's (or gh's) own words out of a failed `Output`: prefer stderr (where
+/// the fatal is written), fall back to stdout, then a generic note. Trimmed.
+/// Every mutating command routes its error through here so the UI shows the
+/// tool's precise message unedited — the tools' errors are good; we never
+/// paraphrase them.
+fn tool_message(output: &Output, fallback: &str) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        fallback.to_string()
+    } else {
+        stdout
+    }
 }
 
 /// `git rev-parse --abbrev-ref HEAD` — current branch name, or None (not a repo,
@@ -295,20 +337,12 @@ pub fn git_worktree_add(repo: String, path: String, branch: String, base: String
     if output.status.success() {
         return Ok(());
     }
-    // Surface git's message verbatim. Prefer stderr (where git writes its
-    // fatals); fall back to stdout, then a generic note if both are silent.
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let msg = if !stderr.is_empty() {
-        stderr
-    } else {
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if stdout.is_empty() {
-            "git worktree add failed".to_string()
-        } else {
-            stdout
-        }
-    };
-    Err(AppError::internal(msg))
+    // Surface git's message verbatim (branch already exists, path exists, invalid
+    // reference) so the popover can show it unedited.
+    Err(AppError::internal(tool_message(
+        &output,
+        "git worktree add failed",
+    )))
 }
 
 /// One worktree attached to a repo (the main checkout plus every attempt).
@@ -365,6 +399,216 @@ pub fn git_worktree_list(repo: String) -> Vec<WorktreeEntry> {
         return Vec::new();
     }
     parse_worktree_porcelain(&String::from_utf8_lossy(&output.stdout))
+}
+
+// ---------------------------------------------------------------------------
+// Land (Plan 013 Phase B). Turning a finished attempt into a merged/PR'd change
+// and cleaning up its worktree. Every MUTATING command here captures the tool's
+// stderr and surfaces it verbatim — refuse-and-explain is the whole feature:
+// never force, never stash, `branch -d` never `-D`, `worktree remove` never
+// --force. `gh` spawns go through the SAME CREATE_NO_WINDOW discipline as git.
+// ---------------------------------------------------------------------------
+
+/// The main checkout's branch + cleanliness — the basis for the Land decision
+/// (is a local merge even possible?) and the re-checked guard inside a merge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoState {
+    /// Current branch of the MAIN checkout, or None (detached HEAD / not a repo).
+    pub current_branch: Option<String>,
+    /// True when `git status --porcelain` is empty (nothing staged/unstaged/
+    /// untracked). False on ANY status error — fail safe: refuse a merge onto a
+    /// tree we couldn't read rather than risk one.
+    pub clean: bool,
+}
+
+/// Read (branch, clean) once — shared by the `git_repo_state` command AND the
+/// `git_merge_attempt` guard so both judge reality identically.
+fn read_repo_state(repo: &str) -> RepoState {
+    let current_branch = git_current_branch(repo.to_string());
+    let clean = run_git(repo, &["status", "--porcelain", "-z"], DIFF_TIMEOUT)
+        .filter(|o| o.status.success())
+        .map(|o| o.stdout.is_empty())
+        .unwrap_or(false);
+    RepoState {
+        current_branch,
+        clean,
+    }
+}
+
+/// Current branch + clean flag of a repo's MAIN checkout. Drives the Land menu's
+/// "Merge locally" enablement (and its inline refusal reason when disabled).
+#[tauri::command]
+pub fn git_repo_state(repo: String) -> RepoState {
+    read_repo_state(&repo)
+}
+
+/// The `origin` remote URL, or None when there's no `origin`. Presence decides
+/// whether the Land menu offers a PR / compare-page path at all.
+#[tauri::command]
+pub fn git_has_remote(repo: String) -> Option<String> {
+    let output = run_git(&repo, &["remote", "get-url", "origin"], BRANCH_TIMEOUT)?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
+}
+
+/// `git merge-base <a> <b>` — the common ancestor commit, or None. Read-only.
+/// The Diff tab resolves merge-base(HEAD, <baseBranch>) so an attempt session
+/// diffs against where it forked, not just its own uncommitted work.
+#[tauri::command]
+pub fn git_merge_base(repo: String, a: String, b: String) -> Option<String> {
+    let output = run_git(&repo, &["merge-base", &a, &b], BRANCH_TIMEOUT)?;
+    if !output.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if sha.is_empty() {
+        None
+    } else {
+        Some(sha)
+    }
+}
+
+/// Merge an attempt's `branch` into `base` IN THE MAIN CHECKOUT — the one place a
+/// local land can happen.
+///
+/// TOCTOU-safe: the UI checked repo state when it opened the menu, but the user
+/// may have switched branches or dirtied the tree since. So the COMMAND ITSELF
+/// re-verifies the main checkout is still on `base` and clean at the instant of
+/// merge, and refuses with a precise message on any drift WITHOUT touching the
+/// repo. On a merge conflict it runs `git merge --abort` immediately — the main
+/// checkout is NEVER left mid-merge — and returns git's own conflict text.
+#[tauri::command]
+pub fn git_merge_attempt(repo: String, branch: String, base: String) -> AppResult<()> {
+    // Re-read reality; don't trust the UI's now-possibly-stale snapshot.
+    let state = read_repo_state(&repo);
+    match state.current_branch.as_deref() {
+        Some(cur) if cur == base => {}
+        Some(cur) => {
+            return Err(AppError::internal(format!(
+                "main checkout is on {cur}, not {base} — switch to {base} to merge here, or use a PR"
+            )));
+        }
+        None => {
+            return Err(AppError::internal(format!(
+                "main checkout is on a detached HEAD — check out {base} to merge here, or use a PR"
+            )));
+        }
+    }
+    if !state.clean {
+        return Err(AppError::internal(
+            "main checkout has uncommitted changes — commit or stash them, or use a PR".to_string(),
+        ));
+    }
+
+    let output = run_git_inner(
+        &repo,
+        &["merge", "--no-ff", &branch],
+        WORKTREE_TIMEOUT,
+        true,
+    )
+    .ok_or_else(|| AppError::internal(format!("git merge failed to run or timed out in {repo}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    // Conflict (or other failure): never leave the main checkout mid-merge.
+    // Abort first, THEN surface git's own message.
+    let _ = run_git_inner(&repo, &["merge", "--abort"], WORKTREE_TIMEOUT, false);
+    Err(AppError::internal(tool_message(
+        &output,
+        "git merge failed",
+    )))
+}
+
+/// `git worktree remove <path>` in the main repo. NO --force in v1: a dirty
+/// worktree MUST refuse (git's stderr says what to clean up). Deleting the user's
+/// uncommitted work on their behalf is the exact thing this plan refuses to do.
+#[tauri::command]
+pub fn git_worktree_remove(repo: String, path: String) -> AppResult<()> {
+    let output = run_git_inner(
+        &repo,
+        &["worktree", "remove", &path],
+        WORKTREE_TIMEOUT,
+        true,
+    )
+    .ok_or_else(|| {
+        AppError::internal(format!(
+            "git worktree remove failed to run or timed out in {repo}"
+        ))
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(AppError::internal(tool_message(
+        &output,
+        "git worktree remove failed",
+    )))
+}
+
+/// `git branch -d <branch>` — `-d` ONLY, never `-D`. git refuses to delete an
+/// unmerged branch, which is precisely the safety we want (its stderr tells the
+/// user the branch isn't merged). Surfaced verbatim.
+#[tauri::command]
+pub fn git_branch_delete(repo: String, branch: String) -> AppResult<()> {
+    let output = run_git_inner(&repo, &["branch", "-d", &branch], BRANCH_TIMEOUT, true)
+        .ok_or_else(|| {
+            AppError::internal(format!(
+                "git branch -d failed to run or timed out in {repo}"
+            ))
+        })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(AppError::internal(tool_message(
+        &output,
+        "git branch -d failed",
+    )))
+}
+
+/// Probe whether the GitHub CLI is on PATH (`gh --version`). Cached per app run
+/// on the TS side, so this runs at most once. No repo dir needed.
+#[tauri::command]
+pub fn gh_available() -> bool {
+    run_tool("gh", "", &["--version"], BRANCH_TIMEOUT, false)
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// `gh pr create --head <branch> --base <base> --fill` in the WORKTREE dir.
+/// Returns the PR URL gh prints on success; on failure returns gh's own stderr
+/// verbatim (not authenticated, "no commits between", …) so the UI shows exactly
+/// what gh said. Runs under the same CREATE_NO_WINDOW discipline as git.
+#[tauri::command]
+pub fn gh_pr_create(worktree: String, branch: String, base: String) -> AppResult<String> {
+    let output = run_tool(
+        "gh",
+        &worktree,
+        &["pr", "create", "--head", &branch, "--base", &base, "--fill"],
+        GH_TIMEOUT,
+        true,
+    )
+    .ok_or_else(|| AppError::internal("gh pr create failed to run or timed out".to_string()))?;
+    if output.status.success() {
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // gh prints the PR URL to stdout; if it's silent, still succeed.
+        return Ok(if url.is_empty() {
+            "Pull request created".to_string()
+        } else {
+            url
+        });
+    }
+    Err(AppError::internal(tool_message(
+        &output,
+        "gh pr create failed",
+    )))
 }
 
 /// One changed file in the working tree, relative to HEAD. `status` is a
@@ -446,13 +690,76 @@ fn parse_status_porcelain_z(data: &str) -> Vec<ChangedFile> {
     out
 }
 
-/// List the working-tree changes vs HEAD for a repo. Always uses HEAD as the
-/// base (see Plan 010 §3 — the merge-base option was scoped out to keep the
-/// changed-file list and the per-file diff on the same coherent base). Errors
-/// (missing git, deleted repo) surface as an AppError the store turns into an
-/// empty-state, not a toast.
+/// Parse `git diff --name-status -z <base>` — the merge-base changed-file list
+/// (Plan 013 Phase B). The -z stream is NUL-terminated fields: a plain change is
+/// `STATUS\0PATH`; a rename/copy is `Rxxx\0OLDPATH\0NEWPATH` (a similarity score
+/// after the letter, then TWO paths — the second entry must not be mistaken for
+/// its own change). Statuses map to the SAME normalised kinds as the status
+/// parser so the UI renders one glyph vocabulary regardless of diff base.
+fn parse_diff_name_status_z(data: &str) -> Vec<ChangedFile> {
+    let mut out = Vec::new();
+    let mut fields = data.split('\0');
+    while let Some(status_field) = fields.next() {
+        if status_field.is_empty() {
+            continue; // trailing empty field after the final NUL
+        }
+        let code = status_field.as_bytes()[0] as char;
+        match code {
+            // Rename/copy: the status field is followed by OLD then NEW.
+            'R' | 'C' => {
+                let (Some(old), Some(new)) = (fields.next(), fields.next()) else {
+                    break; // truncated stream — stop rather than misread
+                };
+                out.push(ChangedFile {
+                    status: if code == 'R' { "renamed" } else { "added" }.to_string(),
+                    path: new.to_string(),
+                    old_path: Some(old.to_string()),
+                });
+            }
+            _ => {
+                let Some(path) = fields.next() else {
+                    break;
+                };
+                let status = match code {
+                    'A' => "added",
+                    'D' => "deleted",
+                    // M (modified), T (typechange) and any other single-file
+                    // change render as a modification.
+                    _ => "modified",
+                };
+                out.push(ChangedFile {
+                    status: status.to_string(),
+                    path: path.to_string(),
+                    old_path: None,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// List a repo's changed files. `base` None → working tree vs HEAD via
+/// `git status` (Plan 010B, the default for every non-attempt session). `base`
+/// Some(rev) → `git diff --name-status <rev>` so an attempt session lists
+/// EVERYTHING it changed since it forked (merge-base), not just uncommitted work
+/// vs HEAD. Errors (missing git, deleted repo) surface as an AppError the store
+/// turns into an empty-state, not a toast.
 #[tauri::command]
-pub fn git_changed_files(repo: String) -> AppResult<Vec<ChangedFile>> {
+pub fn git_changed_files(repo: String, base: Option<String>) -> AppResult<Vec<ChangedFile>> {
+    if let Some(base) = base {
+        let output = run_git(&repo, &["diff", "--name-status", "-z", &base], DIFF_TIMEOUT)
+            .ok_or_else(|| AppError::Internal {
+                reason: format!("git diff failed or timed out in {repo}"),
+            })?;
+        if !output.status.success() {
+            return Err(AppError::Internal {
+                reason: format!("git diff exited non-zero in {repo}"),
+            });
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        return Ok(parse_diff_name_status_z(&text));
+    }
+
     let output =
         run_git(&repo, &["status", "--porcelain=v1", "-z"], DIFF_TIMEOUT).ok_or_else(|| {
             AppError::Internal {
@@ -472,10 +779,14 @@ pub fn git_changed_files(repo: String) -> AppResult<Vec<ChangedFile>> {
 /// Old + new contents for one changed file, ready to hand to @codemirror/merge
 /// (which diffs the two texts itself — we don't parse git's patch output).
 ///
-///   - modified: old = HEAD:path,     new = working file
-///   - added / untracked: old = "",   new = working file
-///   - deleted: old = HEAD:path,      new = ""
-///   - renamed: old = HEAD:old_path,  new = working file at path
+///   - modified: old = <base>:path,     new = working file
+///   - added / untracked: old = "",      new = working file
+///   - deleted: old = <base>:path,       new = ""
+///   - renamed: old = <base>:old_path,   new = working file at path
+///
+/// `base` is the ref for the old side — HEAD by default (Plan 010B), or the
+/// merge-base SHA for an attempt session (Plan 013 Phase B), matching whatever
+/// base `git_changed_files` listed against so the two stay coherent.
 ///
 /// `binary` (NUL sniff on either side) and `too_large` (either side over the
 /// editor cap) short-circuit rendering — the UI shows a placeholder instead of
@@ -490,14 +801,24 @@ pub struct FileDiff {
 }
 
 #[tauri::command]
-pub fn git_file_diff(repo: String, path: String, old_path: Option<String>) -> AppResult<FileDiff> {
-    // Old side: the blob at HEAD. For a rename that's the pre-rename path. A
-    // git failure here means "not in HEAD" (added/untracked) → empty old side.
+pub fn git_file_diff(
+    repo: String,
+    path: String,
+    old_path: Option<String>,
+    base: Option<String>,
+) -> AppResult<FileDiff> {
+    // Old side: the blob at the diff base. For a rename that's the pre-rename
+    // path. A git failure here means "not in <base>" (added) → empty old side.
     let old_rel = old_path.as_deref().unwrap_or(&path);
-    let old_bytes = run_git(&repo, &["show", &format!("HEAD:{old_rel}")], DIFF_TIMEOUT)
-        .filter(|o| o.status.success())
-        .map(|o| o.stdout)
-        .unwrap_or_default();
+    let base_ref = base.as_deref().unwrap_or("HEAD");
+    let old_bytes = run_git(
+        &repo,
+        &["show", &format!("{base_ref}:{old_rel}")],
+        DIFF_TIMEOUT,
+    )
+    .filter(|o| o.status.success())
+    .map(|o| o.stdout)
+    .unwrap_or_default();
 
     // New side: the working-tree file. Missing = deleted → empty new side.
     let work_path = Path::new(&repo).join(&path);
@@ -607,6 +928,40 @@ mod tests {
         git_in(dir, &["config", "commit.gpgsign", "false"]);
     }
 
+    /// Capture a git command's trimmed stdout (test-only convenience).
+    fn git_out(dir: &Path, args: &[&str]) -> String {
+        let out = StdCommand::new("git")
+            .args(args)
+            .current_dir(dir)
+            .stderr(Stdio::null())
+            .output()
+            .expect("spawn git");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Probe whether `gh` is on PATH — Land's gh tests skip (not fail) without it,
+    /// mirroring `git_available` so a bare CI image still runs the suite.
+    fn gh_on_path() -> bool {
+        StdCommand::new("gh")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Init a repo on a KNOWN default branch (`main`) with one commit, so tests
+    /// don't depend on the host's `init.defaultBranch`. Returns nothing; the repo
+    /// is left checked out on `main`.
+    fn init_repo_on_main(dir: &Path) {
+        init_repo(dir);
+        git_in(dir, &["checkout", "-q", "-b", "main"]);
+        std::fs::write(dir.join("seed.txt"), "seed\n").unwrap();
+        git_in(dir, &["add", "."]);
+        git_in(dir, &["commit", "-q", "-m", "init"]);
+    }
+
     #[test]
     fn repo_root_resolves_subdir_to_toplevel() {
         if !git_available() {
@@ -656,7 +1011,7 @@ mod tests {
         std::fs::remove_file(root.join("gone.txt")).unwrap(); // delete
         std::fs::write(root.join("fresh.txt"), "new\n").unwrap(); // untracked
 
-        let files = git_changed_files(root.to_string_lossy().to_string()).unwrap();
+        let files = git_changed_files(root.to_string_lossy().to_string(), None).unwrap();
         let by = |p: &str| files.iter().find(|f| f.path == p).cloned();
         assert_eq!(by("keep.txt").unwrap().status, "modified");
         assert_eq!(by("gone.txt").unwrap().status, "deleted");
@@ -676,7 +1031,7 @@ mod tests {
         git_in(root, &["commit", "-q", "-m", "init"]);
         git_in(root, &["mv", "before.txt", "after.txt"]);
 
-        let files = git_changed_files(root.to_string_lossy().to_string()).unwrap();
+        let files = git_changed_files(root.to_string_lossy().to_string(), None).unwrap();
         let renamed = files
             .iter()
             .find(|f| f.status == "renamed")
@@ -702,6 +1057,7 @@ mod tests {
             root.to_string_lossy().to_string(),
             "a.txt".to_string(),
             None,
+            None,
         )
         .unwrap();
         assert_eq!(d.old_text, "old line\n");
@@ -726,6 +1082,7 @@ mod tests {
             root.to_string_lossy().to_string(),
             "brand.txt".to_string(),
             None,
+            None,
         )
         .unwrap();
         assert_eq!(d.old_text, ""); // not in HEAD → empty old side
@@ -749,6 +1106,7 @@ mod tests {
             root.to_string_lossy().to_string(),
             "doomed.txt".to_string(),
             None,
+            None,
         )
         .unwrap();
         assert_eq!(d.old_text, "here\n");
@@ -769,6 +1127,7 @@ mod tests {
         let d = git_file_diff(
             root.to_string_lossy().to_string(),
             "blob.bin".to_string(),
+            None,
             None,
         )
         .unwrap();
@@ -945,6 +1304,387 @@ detached
         assert!(
             reason.to_lowercase().contains("exists"),
             "git's message should surface verbatim, got: {reason}"
+        );
+    }
+
+    // ---- Plan 013 Phase B pure parsers (no git needed) ----
+
+    #[test]
+    fn parse_diff_name_status_maps_plain_changes() {
+        // `M\0a.rs\0A\0b.rs\0D\0c.rs\0` — one status + one path each.
+        let data = "M\0a.rs\0A\0b.rs\0D\0c.rs\0";
+        let files = parse_diff_name_status_z(data);
+        assert_eq!(files.len(), 3);
+        assert_eq!(
+            (files[0].status.as_str(), files[0].path.as_str()),
+            ("modified", "a.rs")
+        );
+        assert_eq!(
+            (files[1].status.as_str(), files[1].path.as_str()),
+            ("added", "b.rs")
+        );
+        assert_eq!(
+            (files[2].status.as_str(), files[2].path.as_str()),
+            ("deleted", "c.rs")
+        );
+        assert!(files.iter().all(|f| f.old_path.is_none()));
+    }
+
+    #[test]
+    fn parse_diff_name_status_reads_rename_two_paths() {
+        // `R100\0old.rs\0new.rs\0M\0other.rs\0` — the rename consumes TWO paths;
+        // `other.rs` must remain its own entry, not be swallowed.
+        let data = "R100\0old.rs\0new.rs\0M\0other.rs\0";
+        let files = parse_diff_name_status_z(data);
+        assert_eq!(files.len(), 2, "rename must consume exactly its two paths");
+        assert_eq!(files[0].status, "renamed");
+        assert_eq!(files[0].path, "new.rs");
+        assert_eq!(files[0].old_path.as_deref(), Some("old.rs"));
+        assert_eq!(files[1].status, "modified");
+        assert_eq!(files[1].path, "other.rs");
+    }
+
+    #[test]
+    fn parse_diff_name_status_empty_is_no_files() {
+        assert!(parse_diff_name_status_z("").is_empty());
+        assert!(parse_diff_name_status_z("\0").is_empty());
+    }
+
+    // ---- Plan 013 Phase B fixture-repo integration tests ----
+
+    #[test]
+    fn repo_state_reports_branch_and_cleanliness() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+
+        let clean = git_repo_state(root.to_string_lossy().to_string());
+        assert_eq!(clean.current_branch.as_deref(), Some("main"));
+        assert!(clean.clean, "a freshly-committed tree is clean");
+
+        std::fs::write(root.join("seed.txt"), "seed\ndirty\n").unwrap();
+        let dirty = git_repo_state(root.to_string_lossy().to_string());
+        assert_eq!(dirty.current_branch.as_deref(), Some("main"));
+        assert!(!dirty.clean, "an uncommitted change makes it dirty");
+    }
+
+    #[test]
+    fn has_remote_none_then_some() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+
+        assert_eq!(git_has_remote(root.to_string_lossy().to_string()), None);
+        git_in(
+            root,
+            &["remote", "add", "origin", "https://example.com/x.git"],
+        );
+        assert_eq!(
+            git_has_remote(root.to_string_lossy().to_string()).as_deref(),
+            Some("https://example.com/x.git")
+        );
+    }
+
+    #[test]
+    fn merge_base_is_the_fork_point() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root); // commit A on main
+        let fork = git_out(root, &["rev-parse", "HEAD"]); // A
+        git_in(root, &["branch", "feature"]); // feature at A
+        std::fs::write(root.join("seed.txt"), "seed\nB\n").unwrap();
+        git_in(root, &["commit", "-qam", "B"]); // main advances to B
+
+        let mb = git_merge_base(
+            root.to_string_lossy().to_string(),
+            "main".to_string(),
+            "feature".to_string(),
+        );
+        assert_eq!(
+            mb.as_deref(),
+            Some(fork.as_str()),
+            "merge-base is the fork commit A"
+        );
+    }
+
+    #[test]
+    fn changed_files_against_base_lists_committed_branch_work() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+        let base = git_out(root, &["rev-parse", "HEAD"]);
+        // A committed change on the branch (NOT reflected by `git status`).
+        std::fs::write(root.join("feat.txt"), "feature\n").unwrap();
+        git_in(root, &["add", "."]);
+        git_in(root, &["commit", "-qm", "feat"]);
+
+        // vs HEAD: clean (the change is committed).
+        let vs_head = git_changed_files(root.to_string_lossy().to_string(), None).unwrap();
+        assert!(vs_head.is_empty(), "committed work is invisible vs HEAD");
+        // vs base: the committed addition shows up.
+        let vs_base = git_changed_files(root.to_string_lossy().to_string(), Some(base)).unwrap();
+        assert!(
+            vs_base
+                .iter()
+                .any(|f| f.path == "feat.txt" && f.status == "added"),
+            "merge-base diff surfaces committed branch work: {vs_base:?}"
+        );
+    }
+
+    #[test]
+    fn merge_attempt_happy_path_lands_branch() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+
+        // Fork an attempt worktree OUTSIDE the repo (the real design — a nested
+        // worktree would show as untracked and dirty the main checkout), commit
+        // work on it.
+        let wt_home = tempfile::tempdir().unwrap();
+        let wt = wt_home.path().join("wt");
+        git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .unwrap();
+        std::fs::write(wt.join("added.txt"), "from attempt\n").unwrap();
+        git_in(&wt, &["add", "."]);
+        git_in(&wt, &["commit", "-qm", "attempt work"]);
+
+        // Main is on main + clean → merge succeeds and the file lands.
+        let res = git_merge_attempt(
+            root.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        );
+        assert!(
+            res.is_ok(),
+            "clean fast-forwardable merge should succeed: {res:?}"
+        );
+        assert!(
+            root.join("added.txt").exists(),
+            "merged file is in the main checkout"
+        );
+    }
+
+    #[test]
+    fn merge_attempt_refuses_wrong_branch() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+        git_in(root, &["checkout", "-q", "-b", "other"]); // main checkout on `other`
+
+        let err = git_merge_attempt(
+            root.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .expect_err("merge must refuse when main isn't on the base branch");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            reason.contains("other") && reason.contains("main"),
+            "refusal names the current branch and the base: {reason}"
+        );
+    }
+
+    #[test]
+    fn merge_attempt_refuses_dirty_tree() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+        let wt_home = tempfile::tempdir().unwrap();
+        git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt_home.path().join("wt").to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .unwrap();
+        // Dirty the MAIN checkout.
+        std::fs::write(root.join("seed.txt"), "seed\nlocal edit\n").unwrap();
+
+        let err = git_merge_attempt(
+            root.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .expect_err("merge must refuse a dirty main checkout");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            reason.to_lowercase().contains("uncommitted"),
+            "refusal explains the dirty tree: {reason}"
+        );
+    }
+
+    #[test]
+    fn merge_attempt_aborts_on_conflict_and_leaves_no_merge_state() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+
+        // Attempt edits seed.txt; main edits the SAME line differently → conflict.
+        // Worktree lives outside the repo (see happy-path note).
+        let wt_home = tempfile::tempdir().unwrap();
+        let wt = wt_home.path().join("wt");
+        git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .unwrap();
+        std::fs::write(wt.join("seed.txt"), "seed from attempt\n").unwrap();
+        git_in(&wt, &["commit", "-qam", "attempt edit"]);
+        std::fs::write(root.join("seed.txt"), "seed from main\n").unwrap();
+        git_in(root, &["commit", "-qam", "main edit"]);
+
+        let err = git_merge_attempt(
+            root.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .expect_err("a conflicting merge must fail");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(!reason.is_empty(), "git's conflict message surfaces");
+        // The abort must have run — no MERGE_HEAD left behind, tree clean again.
+        assert!(
+            !root.join(".git/MERGE_HEAD").exists(),
+            "merge was aborted; no MERGE_HEAD remains"
+        );
+        assert!(
+            git_repo_state(root.to_string_lossy().to_string()).clean,
+            "main checkout is clean after the abort"
+        );
+    }
+
+    #[test]
+    fn worktree_remove_refuses_dirty_then_removes_clean() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+        let wt = root.join("wt");
+        git_worktree_add(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        )
+        .unwrap();
+
+        // Dirty the worktree → remove refuses with git's own words.
+        std::fs::write(wt.join("scratch.txt"), "uncommitted\n").unwrap();
+        let err = git_worktree_remove(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+        )
+        .expect_err("a dirty worktree must refuse removal");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            !reason.is_empty(),
+            "git's refusal surfaces verbatim: {reason}"
+        );
+        assert!(wt.exists(), "worktree still present after a refused remove");
+
+        // Clean it up → remove succeeds.
+        std::fs::remove_file(wt.join("scratch.txt")).unwrap();
+        git_worktree_remove(
+            root.to_string_lossy().to_string(),
+            wt.to_string_lossy().to_string(),
+        )
+        .expect("a clean worktree removes");
+        assert!(!wt.exists(), "worktree directory is gone");
+    }
+
+    #[test]
+    fn branch_delete_refuses_unmerged_then_deletes_merged() {
+        if !git_available() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        init_repo_on_main(root);
+
+        // An unmerged branch: `-d` must refuse (never `-D`).
+        git_in(root, &["checkout", "-q", "-b", "stray"]);
+        std::fs::write(root.join("stray.txt"), "unmerged\n").unwrap();
+        git_in(root, &["add", "."]);
+        git_in(root, &["commit", "-qm", "stray work"]);
+        git_in(root, &["checkout", "-q", "main"]);
+
+        let err = git_branch_delete(root.to_string_lossy().to_string(), "stray".to_string())
+            .expect_err("an unmerged branch must refuse -d");
+        let AppError::Internal { reason } = err else {
+            panic!("expected Internal error");
+        };
+        assert!(
+            reason.to_lowercase().contains("not fully merged")
+                || reason.to_lowercase().contains("not merged"),
+            "git explains the branch isn't merged: {reason}"
+        );
+
+        // A merged branch deletes cleanly.
+        git_in(root, &["branch", "merged-twin"]); // points at HEAD → merged
+        git_branch_delete(
+            root.to_string_lossy().to_string(),
+            "merged-twin".to_string(),
+        )
+        .expect("a merged branch deletes with -d");
+    }
+
+    #[test]
+    fn gh_pr_create_fails_loud_outside_a_repo() {
+        // gh's error path without hitting the network: in a plain (non-git) dir
+        // gh fails fast. Skipped when gh isn't installed (Land degrades to the
+        // compare-page fallback there).
+        if !gh_on_path() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let res = gh_pr_create(
+            dir.path().to_string_lossy().to_string(),
+            "lume/x".to_string(),
+            "main".to_string(),
+        );
+        assert!(
+            res.is_err(),
+            "gh pr create outside a repo must error, not hang"
         );
     }
 }
