@@ -39,6 +39,10 @@ export interface Attempt {
   createdAt: number;
   /** The one-time "fresh worktree — run your install" chip: true once dismissed. */
   hintDismissed: boolean;
+  /** Set by Land's cleanup once the attempt has been merged/PR'd and its worktree
+   *  removed — the record then reads as "landed" (a stopped, archived attempt)
+   *  for the rest of the session, and boot reconcile drops it (worktree gone). */
+  landedAt?: number;
 }
 
 interface AttemptState {
@@ -50,6 +54,9 @@ interface AttemptActions {
   addAttempt: (sessionId: SessionId, attempt: Attempt) => void;
   /** Persist the one-time hint dismissal for this attempt's pane chip. */
   dismissHint: (sessionId: SessionId) => void;
+  /** Stamp the attempt as landed (cleanup succeeded) — keeps the record for the
+   *  session's lifetime with a "landed" marker. No-op on an unknown session. */
+  markLanded: (sessionId: SessionId) => void;
   /** Drop an attempt record (boot reconcile when its folder is gone; cleanup). */
   removeAttempt: (sessionId: SessionId) => void;
   reset: () => void;
@@ -71,6 +78,12 @@ export const useAttemptStore = create<AttemptStore>()(
         set((s) => {
           const a = s.attempts[sessionId];
           if (a) a.hintDismissed = true;
+        }),
+
+      markLanded: (sessionId) =>
+        set((s) => {
+          const a = s.attempts[sessionId];
+          if (a) a.landedAt = Date.now();
         }),
 
       removeAttempt: (sessionId) =>

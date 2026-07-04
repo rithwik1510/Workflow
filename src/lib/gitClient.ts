@@ -41,19 +41,26 @@ export function gitRepoRoot(path: string): Promise<string | null> {
   return invoke<string | null>("git_repo_root", { path });
 }
 
-/** Working-tree changes vs HEAD for a repo. */
-export function gitChangedFiles(repo: string): Promise<ChangedFile[]> {
-  return invoke<ChangedFile[]>("git_changed_files", { repo });
+/** Changed files for a repo. `base` null → working tree vs HEAD (default). `base`
+ *  a commit/ref → `git diff <base>` so an attempt session lists everything it
+ *  changed since it forked (merge-base), not just uncommitted work (Plan 013B). */
+export function gitChangedFiles(
+  repo: string,
+  base?: string | null
+): Promise<ChangedFile[]> {
+  return invoke<ChangedFile[]>("git_changed_files", { repo, base: base ?? null });
 }
 
 /** Old/new contents for one changed file. `oldPath` is the pre-rename path for
- *  renamed entries (null for everything else). */
+ *  renamed entries (null otherwise). `base` picks the old side's ref — HEAD by
+ *  default, or the merge-base SHA for an attempt session (Plan 013B). */
 export function gitFileDiff(
   repo: string,
   path: string,
-  oldPath: string | null
+  oldPath: string | null,
+  base?: string | null
 ): Promise<FileDiff> {
-  return invoke<FileDiff>("git_file_diff", { repo, path, oldPath });
+  return invoke<FileDiff>("git_file_diff", { repo, path, oldPath, base: base ?? null });
 }
 
 // --- Attempt worktrees (Plan 013 Phase A) -----------------------------------
@@ -103,4 +110,63 @@ export function gitWorktreeAdd(
  *  to reconcile attemptStore against reality. Never rejects — [] on failure. */
 export function gitWorktreeList(repo: string): Promise<WorktreeEntry[]> {
   return invoke<WorktreeEntry[]>("git_worktree_list", { repo });
+}
+
+// --- Land (Plan 013 Phase B) ------------------------------------------------
+
+/** The main checkout's branch + cleanliness. Mirrors the Rust `RepoState`. */
+export interface RepoState {
+  /** Current branch of the MAIN checkout, or null (detached HEAD / not a repo). */
+  currentBranch: string | null;
+  /** True when `git status --porcelain` is empty. Drives local-merge enablement. */
+  clean: boolean;
+}
+
+/** Current branch + clean flag of a repo's main checkout — the basis for the
+ *  Land menu's "Merge locally" decision. Never rejects. */
+export function gitRepoState(repo: string): Promise<RepoState> {
+  return invoke<RepoState>("git_repo_state", { repo });
+}
+
+/** The `origin` remote URL, or null when there's no `origin`. Presence decides
+ *  whether the Land menu offers a PR / compare-page path. */
+export function gitHasRemote(repo: string): Promise<string | null> {
+  return invoke<string | null>("git_has_remote", { repo });
+}
+
+/** `git merge-base <a> <b>` — the common ancestor commit SHA, or null. Read-only;
+ *  used to diff an attempt against where it forked. */
+export function gitMergeBase(repo: string, a: string, b: string): Promise<string | null> {
+  return invoke<string | null>("git_merge_base", { repo, a, b });
+}
+
+/** Merge an attempt's `branch` into `base` in the MAIN checkout. The command
+ *  re-verifies the checkout is still on `base` and clean (TOCTOU guard) and
+ *  aborts on conflict — rejecting with git's verbatim message on any refusal. */
+export function gitMergeAttempt(repo: string, branch: string, base: string): Promise<void> {
+  return invoke<void>("git_merge_attempt", { repo, branch, base });
+}
+
+/** `git worktree remove <path>` (no --force). Rejects with git's verbatim stderr
+ *  when the worktree is dirty — never deletes uncommitted work. */
+export function gitWorktreeRemove(repo: string, path: string): Promise<void> {
+  return invoke<void>("git_worktree_remove", { repo, path });
+}
+
+/** `git branch -d <branch>` (never -D). Rejects with git's verbatim stderr when
+ *  the branch isn't merged — the refusal is the safety. */
+export function gitBranchDelete(repo: string, branch: string): Promise<void> {
+  return invoke<void>("git_branch_delete", { repo, branch });
+}
+
+/** Whether the GitHub CLI is on PATH. Cache the result per app run (the caller
+ *  does — this still spawns a process each call). */
+export function ghAvailable(): Promise<boolean> {
+  return invoke<boolean>("gh_available");
+}
+
+/** `gh pr create --head <branch> --base <base> --fill` in the worktree. Resolves
+ *  to the PR URL gh prints; rejects with gh's verbatim stderr on failure. */
+export function ghPrCreate(worktree: string, branch: string, base: string): Promise<string> {
+  return invoke<string>("gh_pr_create", { worktree, branch, base });
 }
