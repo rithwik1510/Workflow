@@ -196,12 +196,22 @@ export async function mergeAttemptLocally(
 }
 
 /**
- * Clean up a landed attempt: confirm → `worktree remove` → `branch -d` →
- * stopSession → mark landed. The chain STOPS at the first failure with the
- * tool's verbatim error (no partial silent cleanup): a dirty worktree or an
- * unmerged branch refuses, and the user sees exactly why. Ordered
- * worktree-before-branch because git won't delete a branch checked out in a
- * worktree.
+ * Clean up a landed attempt: confirm → stopSession → `worktree remove` →
+ * `branch -d` → mark landed. The chain STOPS at the first failure with the
+ * tool's verbatim error (no partial silent cleanup).
+ *
+ * ORDER MATTERS, twice over:
+ *  - stopSession BEFORE `worktree remove`: the attempt session's shell/agent
+ *    has its cwd INSIDE the worktree, and on Windows an open cwd locks the
+ *    directory — removal would fail every time the session was still running
+ *    (the normal case: you land from the active session's own Diff tab).
+ *  - `worktree remove` BEFORE `branch -d`: git won't delete a branch that is
+ *    checked out in a worktree.
+ * PTY teardown is asynchronous (the orchestrator reacts to the status flip),
+ * so removal waits a beat and retries briefly — a cwd lock released 200 ms
+ * later must not fail the flow. If removal still refuses (genuinely dirty
+ * worktree), the session is merely stopped — it revives from the sidebar like
+ * any stopped session; nothing is lost.
  */
 export async function cleanupAttempt(
   sessionId: SessionId,
@@ -210,7 +220,7 @@ export async function cleanupAttempt(
   const slug = attemptSlug(attempt);
   const ok = await useConfirmStore.getState().confirm({
     title: "Clean up attempt",
-    message: `Remove the worktree and delete ${attempt.branch}? This can’t be undone.`,
+    message: `Stop the session, remove the worktree, and delete ${attempt.branch}? This can’t be undone.`,
     confirmLabel: "Remove",
     cancelLabel: "Keep",
     danger: true,
@@ -218,10 +228,22 @@ export async function cleanupAttempt(
   if (!ok) return;
 
   const toast = useToastStore.getState();
-  try {
-    await gitWorktreeRemove(attempt.repoRoot, attempt.worktreePath);
-  } catch (err) {
-    toast.push({ severity: "error", message: landErrorText(err) });
+  useSessionsStore.getState().stopSession(sessionId);
+  let removeErr: unknown = null;
+  for (let tryNo = 0; tryNo < 3; tryNo++) {
+    // First beat lets the async PTY kill release the cwd lock; later beats
+    // absorb slow child-process teardown. Bounded — never spins.
+    await new Promise((r) => setTimeout(r, tryNo === 0 ? 500 : 400));
+    try {
+      await gitWorktreeRemove(attempt.repoRoot, attempt.worktreePath);
+      removeErr = null;
+      break;
+    } catch (err) {
+      removeErr = err;
+    }
+  }
+  if (removeErr !== null) {
+    toast.push({ severity: "error", message: landErrorText(removeErr) });
     return;
   }
   try {
@@ -231,7 +253,6 @@ export async function cleanupAttempt(
     toast.push({ severity: "error", message: landErrorText(err) });
     return;
   }
-  useSessionsStore.getState().stopSession(sessionId);
   useAttemptStore.getState().markLanded(sessionId);
   toast.push({ severity: "success", message: `Cleaned up ${slug}` });
 }
