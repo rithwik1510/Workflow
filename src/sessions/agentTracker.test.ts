@@ -374,3 +374,64 @@ describe("agentTracker — command-derived identity (glyph-only)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Resume-id recording (Plan 009 + the empty-session fix). Claude only writes a
+// transcript once a message lands, so an id from SessionStart alone resumes
+// NOTHING ("No conversation found") — the id must only be recorded on the
+// first content evidence, and an empty session must never clobber the previous
+// real conversation's id.
+// ---------------------------------------------------------------------------
+
+import { usePaneResumeStore } from "@/store/paneResumeStore";
+
+describe("agentTracker — resume-id trust rules", () => {
+  beforeEach(() => {
+    usePaneResumeStore.getState().reset();
+  });
+
+  const recordedId = (paneId: string) =>
+    usePaneResumeStore.getState().records[paneId]?.agentSessionId;
+
+  it("SessionStart records the pane (alive, cwd) but NOT the session id", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "SessionStart", { sessionId: "empty-1", cwd: "/bg" }));
+    const rec = usePaneResumeStore.getState().records["pane-bg"];
+    expect(rec).toMatchObject({ agent: "claude", cwd: "/bg", aliveAtShutdown: true });
+    expect(rec?.agentSessionId).toBeUndefined();
+  });
+
+  it("UserPromptSubmit is content evidence — the id becomes the resume target", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "SessionStart", { sessionId: "s-1" }));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit", { sessionId: "s-1" }));
+    expect(recordedId("pane-bg")).toBe("s-1");
+  });
+
+  it("Stop and permission_prompt also count as content evidence", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "Stop", { sessionId: "s-stop" }));
+    expect(recordedId("pane-bg")).toBe("s-stop");
+    applyAgentEvent(
+      ev("pane-bg", "Notification", { kind: "permission_prompt", sessionId: "s-perm" })
+    );
+    expect(recordedId("pane-bg")).toBe("s-perm");
+  });
+
+  it("idle_prompt is NOT evidence (it can fire on an empty session at its prompt)", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "Notification", { kind: "idle_prompt", sessionId: "s-idle" }));
+    expect(recordedId("pane-bg")).toBeUndefined();
+  });
+
+  it("an empty follow-up session never clobbers the real conversation's id", () => {
+    sessionWithPane("/bg", "pane-bg");
+    // Real conversation: start + a prompt.
+    applyAgentEvent(ev("pane-bg", "SessionStart", { sessionId: "real" }));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit", { sessionId: "real" }));
+    applyAgentEvent(ev("pane-bg", "SessionEnd", { sessionId: "real" }));
+    // Fresh claude launched, never conversed, app closed: only a SessionStart.
+    applyAgentEvent(ev("pane-bg", "SessionStart", { sessionId: "empty" }));
+    expect(recordedId("pane-bg")).toBe("real"); // the resumable one survives
+  });
+});

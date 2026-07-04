@@ -58,9 +58,13 @@ interface PaneResumeState {
 }
 
 interface PaneResumeActions {
-  /** Claude hook SessionStart: upsert identity + id + cwd, mark alive. Agent is
-   *  always claude (these ARE Claude's hooks). Keeps any launch command already
-   *  captured for this pane. */
+  /** Claude hook events: upsert identity + cwd (+ resume id), mark alive.
+   *  Agent is always claude (these ARE Claude's hooks). Called WITHOUT
+   *  `agentSessionId` on SessionStart and WITH it on the first content
+   *  evidence (UserPromptSubmit / Stop / permission): Claude only writes a
+   *  session's transcript once a message lands, so an empty session's id
+   *  resumes nothing — it must never clobber the previous real conversation's
+   *  id (see agentTracker). Keeps any launch command already captured. */
   recordAgentStart: (
     paneId: PaneId,
     fields: { agentSessionId?: string; cwd?: string | null }
@@ -85,6 +89,26 @@ interface PaneResumeActions {
 }
 
 export type PaneResumeStore = PaneResumeState & PaneResumeActions;
+
+/** v1 → v2 heal (exported for tests): v1 recorded the session id from
+ *  SessionStart, so ids of EMPTY sessions — which have no transcript on disk;
+ *  `claude --resume <id>` says "No conversation found" — overwrote real ones.
+ *  Every v1 id is untrustworthy wholesale: strip them. Resume then falls back
+ *  to `claude --continue`, which finds the most recent REAL conversation in
+ *  the pane's cwd. Fresh ids are only ever recorded on content evidence
+ *  (UserPromptSubmit / Stop / permission — see agentTracker). */
+export function migrateResumeStore(persisted: unknown, version: number): unknown {
+  if (version >= 2 || !persisted || typeof persisted !== "object") return persisted;
+  const p = persisted as {
+    records?: Record<string, ResumeRecord>;
+    autoResumeOnRestore?: boolean;
+  };
+  const records: Record<string, ResumeRecord> = {};
+  for (const [paneId, rec] of Object.entries(p.records ?? {})) {
+    records[paneId] = { ...rec, agentSessionId: undefined };
+  }
+  return { ...p, records };
+}
 
 function applyRemap(
   records: Record<PaneId, ResumeRecord>,
@@ -167,7 +191,8 @@ export const usePaneResumeStore = create<PaneResumeStore>()(
     {
       name: "resume",
       storage: createJSONStorage(() => tauriPersistStorage("lume-resume.json")),
-      version: 1,
+      version: 2,
+      migrate: migrateResumeStore,
       partialize: (state) => ({
         records: state.records,
         autoResumeOnRestore: state.autoResumeOnRestore,

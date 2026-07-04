@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
 import {
   usePaneResumeStore,
   applyPaneIdRemap,
+  migrateResumeStore,
   _resetPaneResumeRemap,
 } from "@/store/paneResumeStore";
 
@@ -123,5 +124,32 @@ describe("paneResumeStore — auto-resume preference", () => {
     expect(usePaneResumeStore.getState().autoResumeOnRestore).toBe(false);
     usePaneResumeStore.getState().setAutoResumeOnRestore(true);
     expect(usePaneResumeStore.getState().autoResumeOnRestore).toBe(true);
+  });
+});
+
+describe("paneResumeStore — v1→v2 migration (the empty-session heal)", () => {
+  it("strips every v1 session id (untrustworthy) but keeps the records", () => {
+    const v1 = {
+      records: {
+        "pane-1": {
+          agent: "claude",
+          launchCommand: "claude --resume dead-id",
+          agentSessionId: "dead-id",
+          cwd: "C:\proj",
+          aliveAtShutdown: true,
+          lastSeenAt: 1,
+        },
+      },
+      autoResumeOnRestore: true,
+    };
+    const out = migrateResumeStore(v1, 1) as typeof v1;
+    expect(out.records["pane-1"].agentSessionId).toBeUndefined();
+    expect(out.records["pane-1"].agent).toBe("claude"); // record itself survives
+    expect(out.autoResumeOnRestore).toBe(true);
+  });
+
+  it("passes v2+ state through untouched", () => {
+    const v2 = { records: {}, autoResumeOnRestore: false };
+    expect(migrateResumeStore(v2, 2)).toBe(v2);
   });
 });
