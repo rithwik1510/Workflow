@@ -140,7 +140,6 @@ fn tool_message(output: &Output, fallback: &str) -> String {
 
 /// `git rev-parse --abbrev-ref HEAD` — current branch name, or None (not a repo,
 /// detached HEAD, missing git, timeout). Unchanged behaviour from Plan 006.
-#[tauri::command]
 pub fn git_current_branch(path: String) -> Option<String> {
     let output = run_git(
         &path,
@@ -163,7 +162,6 @@ pub fn git_current_branch(path: String) -> Option<String> {
 /// cwds down to the distinct set of repos to offer in the Diff tab. `git`
 /// already emits forward-slash paths here (even on Windows), so the result is a
 /// stable, canonical key for de-duping repos across panes.
-#[tauri::command]
 pub fn git_repo_root(path: String) -> Option<String> {
     let output = run_git(&path, &["rev-parse", "--show-toplevel"], BRANCH_TIMEOUT)?;
     if !output.status.success() {
@@ -249,7 +247,6 @@ fn parse_branches(text: &str) -> Vec<BranchInfo> {
 
 /// List local + remote branches to offer as fork bases. Empty on any failure
 /// (not a repo, git missing, timeout) — the popover shows an inline error state.
-#[tauri::command]
 pub fn git_list_branches(repo: String) -> Vec<BranchInfo> {
     let Some(output) = run_git(
         &repo,
@@ -288,7 +285,6 @@ fn local_branch_exists(repo: &str, name: &str) -> bool {
 /// The repo's default branch, used to preselect the base dropdown. Prefers the
 /// remote's advertised default (`origin/HEAD` → strip `origin/`); falls back to
 /// a local `main`, then `master`, then whatever HEAD currently points at.
-#[tauri::command]
 pub fn git_default_branch(repo: String) -> Option<String> {
     if let Some(output) = run_git(
         &repo,
@@ -321,7 +317,6 @@ pub fn git_default_branch(repo: String) -> Option<String> {
 /// It FAILS LOUD: git's own stderr (branch already exists, path exists, invalid
 /// reference) is returned verbatim in the error so the popover can show it
 /// unedited — git's messages are precise and we must not paraphrase them.
-#[tauri::command]
 pub fn git_worktree_add(repo: String, path: String, branch: String, base: String) -> AppResult<()> {
     let output = run_git_inner(
         &repo,
@@ -350,7 +345,6 @@ pub fn git_worktree_add(repo: String, path: String, branch: String, base: String
 /// "open this branch in its own terminal" — git itself refuses if the branch is
 /// already checked out in another worktree (the safety rail: one branch, one
 /// worktree). Fails loud with git's stderr verbatim, like `git_worktree_add`.
-#[tauri::command]
 pub fn git_worktree_add_existing(repo: String, path: String, branch: String) -> AppResult<()> {
     let output = run_git_inner(
         &repo,
@@ -417,7 +411,6 @@ fn parse_worktree_porcelain(text: &str) -> Vec<WorktreeEntry> {
 
 /// List every worktree attached to `repo` (main checkout + attempts). Used at
 /// boot to reconcile attemptStore against reality. Empty on any failure.
-#[tauri::command]
 pub fn git_worktree_list(repo: String) -> Vec<WorktreeEntry> {
     let Some(output) = run_git(&repo, &["worktree", "list", "--porcelain"], DIFF_TIMEOUT) else {
         return Vec::new();
@@ -465,14 +458,12 @@ fn read_repo_state(repo: &str) -> RepoState {
 
 /// Current branch + clean flag of a repo's MAIN checkout. Drives the Land menu's
 /// "Merge locally" enablement (and its inline refusal reason when disabled).
-#[tauri::command]
 pub fn git_repo_state(repo: String) -> RepoState {
     read_repo_state(&repo)
 }
 
 /// The `origin` remote URL, or None when there's no `origin`. Presence decides
 /// whether the Land menu offers a PR / compare-page path at all.
-#[tauri::command]
 pub fn git_has_remote(repo: String) -> Option<String> {
     let output = run_git(&repo, &["remote", "get-url", "origin"], BRANCH_TIMEOUT)?;
     if !output.status.success() {
@@ -489,7 +480,6 @@ pub fn git_has_remote(repo: String) -> Option<String> {
 /// `git merge-base <a> <b>` — the common ancestor commit, or None. Read-only.
 /// The Diff tab resolves merge-base(HEAD, <baseBranch>) so an attempt session
 /// diffs against where it forked, not just its own uncommitted work.
-#[tauri::command]
 pub fn git_merge_base(repo: String, a: String, b: String) -> Option<String> {
     let output = run_git(&repo, &["merge-base", &a, &b], BRANCH_TIMEOUT)?;
     if !output.status.success() {
@@ -512,7 +502,6 @@ pub fn git_merge_base(repo: String, a: String, b: String) -> Option<String> {
 /// merge, and refuses with a precise message on any drift WITHOUT touching the
 /// repo. On a merge conflict it runs `git merge --abort` immediately — the main
 /// checkout is NEVER left mid-merge — and returns git's own conflict text.
-#[tauri::command]
 pub fn git_merge_attempt(repo: String, branch: String, base: String) -> AppResult<()> {
     // Re-read reality; don't trust the UI's now-possibly-stale snapshot.
     let state = read_repo_state(&repo);
@@ -558,7 +547,6 @@ pub fn git_merge_attempt(repo: String, branch: String, base: String) -> AppResul
 /// `git worktree remove <path>` in the main repo. NO --force in v1: a dirty
 /// worktree MUST refuse (git's stderr says what to clean up). Deleting the user's
 /// uncommitted work on their behalf is the exact thing this plan refuses to do.
-#[tauri::command]
 pub fn git_worktree_remove(repo: String, path: String) -> AppResult<()> {
     let output = run_git_inner(
         &repo,
@@ -583,7 +571,6 @@ pub fn git_worktree_remove(repo: String, path: String) -> AppResult<()> {
 /// `git branch -d <branch>` — `-d` ONLY, never `-D`. git refuses to delete an
 /// unmerged branch, which is precisely the safety we want (its stderr tells the
 /// user the branch isn't merged). Surfaced verbatim.
-#[tauri::command]
 pub fn git_branch_delete(repo: String, branch: String) -> AppResult<()> {
     let output = run_git_inner(&repo, &["branch", "-d", &branch], BRANCH_TIMEOUT, true)
         .ok_or_else(|| {
@@ -602,7 +589,6 @@ pub fn git_branch_delete(repo: String, branch: String) -> AppResult<()> {
 
 /// Probe whether the GitHub CLI is on PATH (`gh --version`). Cached per app run
 /// on the TS side, so this runs at most once. No repo dir needed.
-#[tauri::command]
 pub fn gh_available() -> bool {
     run_tool("gh", "", &["--version"], BRANCH_TIMEOUT, false)
         .map(|o| o.status.success())
@@ -613,7 +599,6 @@ pub fn gh_available() -> bool {
 /// Returns the PR URL gh prints on success; on failure returns gh's own stderr
 /// verbatim (not authenticated, "no commits between", …) so the UI shows exactly
 /// what gh said. Runs under the same CREATE_NO_WINDOW discipline as git.
-#[tauri::command]
 pub fn gh_pr_create(worktree: String, branch: String, base: String) -> AppResult<String> {
     let output = run_tool(
         "gh",
@@ -771,7 +756,6 @@ fn parse_diff_name_status_z(data: &str) -> Vec<ChangedFile> {
 /// EVERYTHING it changed since it forked (merge-base), not just uncommitted work
 /// vs HEAD. Errors (missing git, deleted repo) surface as an AppError the store
 /// turns into an empty-state, not a toast.
-#[tauri::command]
 pub fn git_changed_files(repo: String, base: Option<String>) -> AppResult<Vec<ChangedFile>> {
     if let Some(base) = base {
         let output = run_git(&repo, &["diff", "--name-status", "-z", &base], DIFF_TIMEOUT)
@@ -827,7 +811,6 @@ pub struct FileDiff {
     pub too_large: bool,
 }
 
-#[tauri::command]
 pub fn git_file_diff(
     repo: String,
     path: String,
@@ -874,6 +857,164 @@ pub fn git_file_diff(
         binary: false,
         too_large: false,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Async command shims (Plan 001, hot subset — the freeze fix).
+//
+// Tauri v2 runs SYNC commands on the MAIN thread. Every function above blocks
+// on a spawned `git`/`gh` for up to WORKTREE_TIMEOUT (120 s) — and the branch
+// poller calls one every 5 s. On OneDrive-synced repos a sync burst can stall
+// git for whole seconds, during which the main thread — and therefore EVERY
+// queued IPC call, including the user's pty_write keystrokes — freezes, then
+// floods back ("terminal froze, then slowly caught up"). These shims keep the
+// tested sync bodies and wire names identical but hop the work onto the async
+// runtime's dedicated BLOCKING pool, so a slow git can never stall the app.
+//
+// Join failures (a panicked blocking task) degrade to each command's "no
+// data" shape — the same stance the sync bodies already take toward git
+// failures. pty.rs commands are deliberately NOT converted: per-keystroke
+// writes are cheap, and async commands lose cross-call ordering, which
+// keystrokes require.
+// ---------------------------------------------------------------------------
+
+pub mod cmd {
+    use super::*;
+    use crate::error::AppError;
+
+    async fn blocking<T: Send + 'static>(
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, AppError> {
+        tauri::async_runtime::spawn_blocking(f)
+            .await
+            .map_err(|e| AppError::internal(format!("blocking task join: {e}")))
+    }
+
+    #[tauri::command]
+    pub async fn git_current_branch(path: String) -> Option<String> {
+        blocking(move || super::git_current_branch(path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[tauri::command]
+    pub async fn git_repo_root(path: String) -> Option<String> {
+        blocking(move || super::git_repo_root(path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[tauri::command]
+    pub async fn git_list_branches(repo: String) -> Vec<BranchInfo> {
+        blocking(move || super::git_list_branches(repo))
+            .await
+            .unwrap_or_default()
+    }
+
+    #[tauri::command]
+    pub async fn git_default_branch(repo: String) -> Option<String> {
+        blocking(move || super::git_default_branch(repo))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[tauri::command]
+    pub async fn git_worktree_add(
+        repo: String,
+        path: String,
+        branch: String,
+        base: String,
+    ) -> AppResult<()> {
+        blocking(move || super::git_worktree_add(repo, path, branch, base)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_worktree_add_existing(
+        repo: String,
+        path: String,
+        branch: String,
+    ) -> AppResult<()> {
+        blocking(move || super::git_worktree_add_existing(repo, path, branch)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_worktree_list(repo: String) -> Vec<WorktreeEntry> {
+        blocking(move || super::git_worktree_list(repo))
+            .await
+            .unwrap_or_default()
+    }
+
+    #[tauri::command]
+    pub async fn git_repo_state(repo: String) -> RepoState {
+        blocking(move || super::git_repo_state(repo))
+            .await
+            .unwrap_or(RepoState {
+                current_branch: None,
+                clean: false,
+            })
+    }
+
+    #[tauri::command]
+    pub async fn git_has_remote(repo: String) -> Option<String> {
+        blocking(move || super::git_has_remote(repo))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[tauri::command]
+    pub async fn git_merge_base(repo: String, a: String, b: String) -> Option<String> {
+        blocking(move || super::git_merge_base(repo, a, b))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    #[tauri::command]
+    pub async fn git_merge_attempt(repo: String, branch: String, base: String) -> AppResult<()> {
+        blocking(move || super::git_merge_attempt(repo, branch, base)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_worktree_remove(repo: String, path: String) -> AppResult<()> {
+        blocking(move || super::git_worktree_remove(repo, path)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_branch_delete(repo: String, branch: String) -> AppResult<()> {
+        blocking(move || super::git_branch_delete(repo, branch)).await?
+    }
+
+    #[tauri::command]
+    pub async fn gh_available() -> bool {
+        blocking(super::gh_available).await.unwrap_or(false)
+    }
+
+    #[tauri::command]
+    pub async fn gh_pr_create(worktree: String, branch: String, base: String) -> AppResult<String> {
+        blocking(move || super::gh_pr_create(worktree, branch, base)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_changed_files(
+        repo: String,
+        base: Option<String>,
+    ) -> AppResult<Vec<ChangedFile>> {
+        blocking(move || super::git_changed_files(repo, base)).await?
+    }
+
+    #[tauri::command]
+    pub async fn git_file_diff(
+        repo: String,
+        path: String,
+        old_path: Option<String>,
+        base: Option<String>,
+    ) -> AppResult<FileDiff> {
+        blocking(move || super::git_file_diff(repo, path, old_path, base)).await?
+    }
 }
 
 #[cfg(test)]
