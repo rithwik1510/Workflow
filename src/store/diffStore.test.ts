@@ -17,19 +17,25 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   })),
 }));
 
-const { rootMap, filesMap } = vi.hoisted(() => ({
+const { rootMap, filesMap, mergeBaseFn } = vi.hoisted(() => ({
   rootMap: new Map<string, string | null>(),
   filesMap: new Map<string, { status: string; path: string; oldPath: string | null }[]>(),
+  mergeBaseFn: vi.fn(async () => null as string | null),
 }));
 
 vi.mock("@/lib/gitClient", () => ({
   gitRepoRoot: vi.fn(async (p: string) => rootMap.get(p) ?? null),
   gitChangedFiles: vi.fn(async (repo: string) => filesMap.get(repo) ?? []),
   gitFileDiff: vi.fn(),
+  gitMergeBase: mergeBaseFn,
+  // attemptStore imports this; unused here (reconcile is never called).
+  gitWorktreeList: vi.fn(async () => []),
 }));
 
+import { gitChangedFiles } from "@/lib/gitClient";
 import { useDiffStore } from "@/store/diffStore";
 import { useSessionsStore } from "@/store/sessionsStore";
+import { useAttemptStore, type Attempt } from "@/store/attemptStore";
 
 function seedActiveSession(folderPath: string): string {
   const id = useSessionsStore.getState().createSession(folderPath);
@@ -40,8 +46,23 @@ function seedActiveSession(folderPath: string): string {
 beforeEach(() => {
   useSessionsStore.setState(useSessionsStore.getInitialState(), true);
   useDiffStore.getState().reset();
+  useAttemptStore.getState().reset();
   rootMap.clear();
   filesMap.clear();
+  mergeBaseFn.mockReset();
+  mergeBaseFn.mockResolvedValue(null);
+  vi.mocked(gitChangedFiles).mockClear();
+});
+
+const mkAttempt = (over: Partial<Attempt> = {}): Attempt => ({
+  repoRoot: "/repo",
+  repoName: "repo",
+  baseBranch: "main",
+  branch: "lume/fix",
+  worktreePath: "/repo",
+  createdAt: 1,
+  hintDismissed: false,
+  ...over,
 });
 
 describe("diffStore — open / close", () => {
@@ -147,5 +168,68 @@ describe("diffStore — multi-repo + refresh", () => {
     expect(useDiffStore.getState().viewMode).toBe("unified");
     useDiffStore.getState().setViewMode("split");
     expect(useDiffStore.getState().viewMode).toBe("split");
+  });
+});
+
+describe("diffStore — merge-base (attempt sessions)", () => {
+  it("defaults an attempt session to merge-base and lists against the resolved SHA", async () => {
+    const id = seedActiveSession("/repo");
+    rootMap.set("/repo", "/repo");
+    filesMap.set("/repo", [{ status: "added", path: "feat.ts", oldPath: null }]);
+    useAttemptStore.getState().addAttempt(id, mkAttempt({ worktreePath: "/repo" }));
+    mergeBaseFn.mockResolvedValue("abc123");
+
+    await useDiffStore.getState().openDiff();
+
+    const s = useDiffStore.getState();
+    expect(s.baseMode).toBe("mergeBase");
+    expect(s.mergeBase).toBe("abc123");
+    expect(s.baseBranch).toBe("main");
+    expect(s.attemptRepo).toBe("/repo");
+    expect(s.activeBase).toBe("abc123");
+    // The first file list was taken against the merge-base SHA, not HEAD.
+    expect(vi.mocked(gitChangedFiles)).toHaveBeenCalledWith("/repo", "abc123");
+  });
+
+  it("toggling to HEAD re-lists against null base", async () => {
+    const id = seedActiveSession("/repo");
+    rootMap.set("/repo", "/repo");
+    filesMap.set("/repo", [{ status: "added", path: "feat.ts", oldPath: null }]);
+    useAttemptStore.getState().addAttempt(id, mkAttempt());
+    mergeBaseFn.mockResolvedValue("abc123");
+    await useDiffStore.getState().openDiff();
+
+    await useDiffStore.getState().setBaseMode("head");
+
+    const s = useDiffStore.getState();
+    expect(s.baseMode).toBe("head");
+    expect(s.activeBase).toBeNull();
+    expect(vi.mocked(gitChangedFiles)).toHaveBeenLastCalledWith("/repo", null);
+  });
+
+  it("falls back to HEAD when no merge-base resolves", async () => {
+    const id = seedActiveSession("/repo");
+    rootMap.set("/repo", "/repo");
+    useAttemptStore.getState().addAttempt(id, mkAttempt());
+    mergeBaseFn.mockResolvedValue(null); // unrelated histories / bad base
+
+    await useDiffStore.getState().openDiff();
+
+    const s = useDiffStore.getState();
+    expect(s.baseMode).toBe("head");
+    expect(s.activeBase).toBeNull();
+  });
+
+  it("a non-attempt session is HEAD-only (no merge-base probe)", async () => {
+    seedActiveSession("/repo");
+    rootMap.set("/repo", "/repo");
+
+    await useDiffStore.getState().openDiff();
+
+    const s = useDiffStore.getState();
+    expect(s.baseMode).toBe("head");
+    expect(s.attemptRepo).toBeNull();
+    expect(s.baseBranch).toBeNull();
+    expect(mergeBaseFn).not.toHaveBeenCalled();
   });
 });

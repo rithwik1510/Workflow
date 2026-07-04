@@ -22,13 +22,18 @@ import { create } from "zustand";
 import { devtools, persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 
-import { gitRepoRoot, gitChangedFiles, type ChangedFile } from "@/lib/gitClient";
+import { gitRepoRoot, gitChangedFiles, gitMergeBase, type ChangedFile } from "@/lib/gitClient";
 import { deriveRepos } from "@/lib/diff/repoDerivation";
 import { tauriPersistStorage } from "@/lib/persistStorage";
+import { useAttemptStore } from "@/store/attemptStore";
 import { useSessionsStore } from "@/store/sessionsStore";
 import { usePtyStore } from "@/store/ptyStore";
+import { samePath } from "@/lib/sessions/groupingHelpers";
 
 export type DiffViewMode = "unified" | "split";
+/** For an attempt session, the diff can be taken against HEAD (working tree) or
+ *  the merge-base with the branch it forked from (everything the attempt did). */
+export type DiffBaseMode = "head" | "mergeBase";
 
 export interface DiffStoreState {
   open: boolean;
@@ -44,11 +49,31 @@ export interface DiffStoreState {
   /** Set when repo listing failed — DiffView shows it as an empty-state line. */
   error: string | null;
 
+  // --- Merge-base diff (Plan 013 Phase B), attempt sessions only ---
+  /** The base BRANCH an attempt session forked from (toggle label); null for a
+   *  non-attempt session (which is always HEAD-only). */
+  baseBranch: string | null;
+  /** The repo the merge-base applies to (the attempt's worktree root). Only when
+   *  the ACTIVE repo equals this does the toggle show / merge-base apply. */
+  attemptRepo: string | null;
+  /** Resolved merge-base(HEAD, baseBranch) SHA, or null (not an attempt / no
+   *  common ancestor). */
+  mergeBase: string | null;
+  /** Which base the diff currently uses. Defaults to "mergeBase" for an attempt
+   *  session (when a merge-base resolved), else "head". Not persisted. */
+  baseMode: DiffBaseMode;
+  /** The actual ref to diff the old side against — the merge-base SHA when in
+   *  merge-base mode for the attempt's repo, else null (= HEAD). Kept in state so
+   *  DiffView passes the SAME base to gitFileDiff that the list was built with. */
+  activeBase: string | null;
+
   openDiff: () => Promise<void>;
   closeDiff: () => void;
   setActiveRepo: (repo: string) => Promise<void>;
   selectFile: (path: string | null) => void;
   setViewMode: (mode: DiffViewMode) => void;
+  /** Flip HEAD ⇄ merge-base and re-list (attempt sessions only). */
+  setBaseMode: (mode: DiffBaseMode) => Promise<void>;
   /** Re-list the active repo. `quiet` (poller) keeps the current selection and
    *  never toggles the spinner; non-quiet (open / manual) re-selects the first
    *  file when nothing is selected. */
@@ -59,6 +84,22 @@ export interface DiffStoreState {
 // Stale-response guard. openDiff/setActiveRepo/closeDiff bump this; an in-flight
 // derive or list whose token is stale drops its result (the user moved on).
 let _req = 0;
+
+/** The ref to diff the old side against, given the current state: the merge-base
+ *  SHA only when we're in merge-base mode AND the active repo is the attempt's
+ *  repo (a multi-repo attempt session's OTHER repos stay HEAD-only); else null
+ *  (= HEAD). Pure so openDiff/setActiveRepo/setBaseMode all resolve identically. */
+function resolveActiveBase(s: {
+  baseMode: DiffBaseMode;
+  mergeBase: string | null;
+  activeRepo: string | null;
+  attemptRepo: string | null;
+}): string | null {
+  if (s.baseMode !== "mergeBase" || !s.mergeBase || !s.activeRepo || !s.attemptRepo) {
+    return null;
+  }
+  return samePath(s.activeRepo, s.attemptRepo) ? s.mergeBase : null;
+}
 
 export const useDiffStore = create<DiffStoreState>()(
   devtools(
@@ -72,6 +113,11 @@ export const useDiffStore = create<DiffStoreState>()(
         viewMode: "unified",
         loading: false,
         error: null,
+        baseBranch: null,
+        attemptRepo: null,
+        mergeBase: null,
+        baseMode: "head",
+        activeBase: null,
 
         openDiff: async () => {
           const req = ++_req;
@@ -91,17 +137,40 @@ export const useDiffStore = create<DiffStoreState>()(
               s.files = [];
               s.selectedPath = null;
               s.loading = false;
+              s.baseBranch = null;
+              s.attemptRepo = null;
+              s.mergeBase = null;
+              s.baseMode = "head";
+              s.activeBase = null;
             });
             return;
           }
           const panes = usePtyStore.getState().panes;
           const repos = await deriveRepos(session, panes, gitRepoRoot);
           if (req !== _req) return; // closed / re-opened while resolving
+          const activeRepo = repos[0] ?? null;
+
+          // Attempt session? Resolve merge-base(HEAD, baseBranch) up front so the
+          // FIRST list is already merge-base-relative (no HEAD flash). Falls back
+          // to HEAD when there's no attempt or no common ancestor.
+          const attempt = activeId ? useAttemptStore.getState().attempts[activeId] : undefined;
+          let mergeBase: string | null = null;
+          if (attempt && activeRepo) {
+            mergeBase = await gitMergeBase(activeRepo, "HEAD", attempt.baseBranch).catch(
+              () => null
+            );
+            if (req !== _req) return;
+          }
           set((s) => {
             s.repos = repos;
-            s.activeRepo = repos[0] ?? null;
+            s.activeRepo = activeRepo;
             s.files = [];
             s.selectedPath = null;
+            s.baseBranch = attempt ? attempt.baseBranch : null;
+            s.attemptRepo = attempt && activeRepo ? activeRepo : null;
+            s.mergeBase = mergeBase;
+            s.baseMode = mergeBase ? "mergeBase" : "head";
+            s.activeBase = resolveActiveBase(s);
           });
           if (get().activeRepo) {
             await get().refresh({ quiet: false });
@@ -126,6 +195,9 @@ export const useDiffStore = create<DiffStoreState>()(
             s.activeRepo = repo;
             s.files = [];
             s.selectedPath = null;
+            // Merge-base only applies to the attempt's own repo; switching to
+            // another repo in a multi-repo session falls back to HEAD.
+            s.activeBase = resolveActiveBase(s);
           });
           await get().refresh({ quiet: false });
         },
@@ -139,6 +211,14 @@ export const useDiffStore = create<DiffStoreState>()(
           set((s) => {
             s.viewMode = mode;
           }),
+
+        setBaseMode: async (mode) => {
+          set((s) => {
+            s.baseMode = mode;
+            s.activeBase = resolveActiveBase(s);
+          });
+          await get().refresh({ quiet: false });
+        },
 
         refresh: async ({ quiet = false } = {}) => {
           const repo = get().activeRepo;
@@ -157,7 +237,7 @@ export const useDiffStore = create<DiffStoreState>()(
             });
           }
           try {
-            const files = await gitChangedFiles(repo);
+            const files = await gitChangedFiles(repo, get().activeBase);
             if (req !== _req || get().activeRepo !== repo) return; // superseded
             set((s) => {
               s.files = files;
@@ -193,6 +273,11 @@ export const useDiffStore = create<DiffStoreState>()(
             s.selectedPath = null;
             s.loading = false;
             s.error = null;
+            s.baseBranch = null;
+            s.attemptRepo = null;
+            s.mergeBase = null;
+            s.baseMode = "head";
+            s.activeBase = null;
           });
         },
       })),
