@@ -13,6 +13,7 @@
 // never returns for this attempt.
 
 import styles from "@/components/AttemptHintChip.module.css";
+import { paneOverlaySlot } from "@/components/paneOverlayArbiter";
 import { usePresence } from "@/hooks/usePresence";
 import { revealInExplorer } from "@/lib/revealInExplorer";
 import { useAgentStore } from "@/store/agentStore";
@@ -32,14 +33,17 @@ export function AttemptHintChip({ paneId }: { paneId: PaneId }) {
   // and after a restart an attempt pane can have BOTH an undismissed hint and a
   // resumable agent. The banner is the actionable one (Resume/Just shell); the
   // hint is persistent until dismissed, so it simply reappears once the banner
-  // resolves. Mirrors PaneResumeBanner's own visibility condition exactly.
+  // resolves. Ranking lives in paneOverlayArbiter (resume → attempt-hint →
+  // coach), shared with PaneResumeBanner and CoachChip so the rules can't drift.
   const hasResumableAgent = usePaneResumeStore(
     (s) => s.records[paneId]?.aliveAtShutdown ?? false
   );
   const hasLiveAgent = useAgentStore((s) => !!s.panes[paneId]);
-  const resumeBannerShowing = hasResumableAgent && !hasLiveAgent;
+  const resumeEligible = hasResumableAgent && !hasLiveAgent;
+  const attemptEligible = !!attempt && !attempt.hintDismissed;
 
-  const shouldShow = !!attempt && !attempt.hintDismissed && !resumeBannerShowing;
+  const shouldShow =
+    paneOverlaySlot({ resumeEligible, attemptEligible, coachEligible: false }) === "attempt-hint";
   const { mounted, state } = usePresence(shouldShow, 200);
   if (!mounted || !attempt || !sessionId) return null;
 

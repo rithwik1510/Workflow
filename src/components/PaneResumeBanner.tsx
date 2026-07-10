@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 
 import styles from "@/components/PaneResumeBanner.module.css";
 import sessionRow from "@/components/SessionRow.module.css";
+import { paneOverlaySlot } from "@/components/paneOverlayArbiter";
 import { AgentGlyph } from "@/components/SignalIndicator";
 import { usePresence } from "@/hooks/usePresence";
 import { useAgentStore, type AgentName } from "@/store/agentStore";
@@ -44,7 +45,11 @@ export function PaneResumeBanner({ paneId }: { paneId: PaneId }) {
   // launched one by hand) — nothing to offer.
   const hasLiveAgent = useAgentStore((s) => !!s.panes[paneId]);
 
-  const shouldShow = !!record && record.aliveAtShutdown && !hasLiveAgent;
+  // Resume is priority 1 in the pane's overlay slot (paneOverlayArbiter): it
+  // shows on exactly its own eligibility, unaffected by lower contenders.
+  const resumeEligible = !!record && record.aliveAtShutdown && !hasLiveAgent;
+  const shouldShow =
+    paneOverlaySlot({ resumeEligible, attemptEligible: false, coachEligible: false }) === "resume";
   const { mounted, state } = usePresence(shouldShow, 200);
 
   // Verify the recorded cwd still exists (Plan 009). Missing folder → warn and

@@ -345,6 +345,46 @@ best-effort no-ops on failure — attention code never crashes the app. The
 decision logic is a pure function (`sessions/attentionEscape.decideEscape`);
 the Windows taskbar affordances live in Rust (`src-tauri/src/attention.rs`).
 
+### Workflow coach (Plan 014)
+
+Teach Lume's faster paths at the moment they're needed, without ever becoming
+Clippy. Two lanes:
+
+- **Push (the interrupt lane)** — a **Coach Chip**: the pane-overlay grammar of
+  the resume banner (absolutely positioned, never reflows the xterm grid,
+  presence in/out, reduced-motion safe, never steals focus), anchored to a
+  Terminal Pane (selection rescue) or the sidebar/session pair (session thrash).
+  It carries ≤10 declarative words, an optional keycap chip, and an explicit
+  **Don't suggest this** — never a bare ×. It **auto-fades after 8s** = "not
+  now" (counts as its one showing, no penalty). Voice = the video-caption rules:
+  declarative, no adjectives.
+- **Pull (the shelf)** — a **For you** group in the retitled **Shortcuts & tips**
+  modal (Ctrl+?), zero interruption; a 2px dot on the ⌨ icon (≤ once / 7 days,
+  cleared on open) is its only escalation.
+
+**Push policy (the admission bar).** A tip may push ONLY for (a) an active
+failure the user is experiencing right now, or (b) high-confidence repeated
+friction with an immediately relevant, anchorable action. "We noticed you're
+inefficient" never qualifies; feature promotion never qualifies — those default
+to the shelf. Every push is subject to one global ceiling, **no exemptions**: at
+most one unprompted tip per calendar day, at most two in any trailing 7 days, at
+most two showings per tip ever. Enforced in one place (`coachStore.tryPush`'s
+gate stack) so no detector can re-derive or loosen a threshold.
+
+**Overlay arbitration.** The Coach Chip is the LOWEST-priority occupant of a
+pane's top-center slot: `paneOverlayArbiter` ranks resume → attempt-hint →
+coach, so the chip never displaces the resume banner or attempt-hint chip — it
+simply doesn't show, and does not retry. `PaneSearchBar` stays top-right and
+never contends.
+
+**Earned silence.** Every tip has a graduation signal — the taught action (a
+Shift-drag selection, a drag-to-split, opening Ctrl+F, a Claude hook event) —
+that retires it permanently, including retroactively before it ever fires. The
+one **Workflow tips** switch (Settings → Interface, default ON) is observation-
+off, not merely surface-off: while OFF, detectors record nothing, arm no timers,
+and mutate no history; **Reset learned tips** clears the learned history without
+touching the preference. All local, always — the coach emits no telemetry.
+
 ---
 
 ## 9. Success criteria

@@ -6,6 +6,22 @@ All notable changes to Lume are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Workflow coach — a rescue tip at the moment it helps, never Clippy.** Lume
+  now teaches its own faster paths only when you hit the friction they solve:
+  drag-to-select inside a mouse-reporting TUI and then Ctrl+Shift+C on the empty
+  selection surfaces a "hold Shift while dragging" chip on that pane; bouncing
+  between the same two sessions surfaces a "drag one onto the other to split"
+  chip. One global ceiling holds it back — at most one unprompted tip a day, two
+  in any trailing week, two showings per tip ever, no exemptions — and any tip
+  you demonstrate you already know (a real Shift-drag, an existing split group)
+  retires forever, including before it ever fires. Quieter advice — enable
+  precise Claude signals, press Ctrl+F to search scrollback — waits in a new
+  **For you** section of the retitled **Shortcuts & tips** (Ctrl+?), with a 2px
+  dot on the ⌨ icon when something new lands. Every chip carries **Don't suggest
+  this**, and one **Workflow tips** switch (Settings → Interface) turns the whole
+  thing off — observation and all — with **Reset learned tips** to start over.
+
 ## [0.1.0] — 2026-07-04
 
 Out of beta. The two loops close: your agents reach you when you're away,

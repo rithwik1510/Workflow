@@ -35,6 +35,8 @@ import { useDiffStore } from "@/store/diffStore";
 import { usePreviewStore } from "@/store/previewStore";
 import { useSessionsStore } from "@/store/sessionsStore";
 import { useSidebarStore } from "@/store/sidebarStore";
+import { useCoachStore } from "@/store/coachStore";
+import { usePrefsStore } from "@/store/prefsStore";
 import { useSettingsModalStore } from "@/store/settingsModalStore";
 import { useShortcutsModalStore } from "@/store/shortcutsModalStore";
 import { useSplitMenuStore } from "@/store/splitMenuStore";
@@ -119,6 +121,12 @@ export function TopBar() {
     useSettingsModalStore.getState().openModal();
   };
 
+  // ⌨ notification dot (Plan 014 §7): a shelved tip is waiting in "Shortcuts &
+  // tips". Suppressed when Workflow tips are off — the coach is fully silent.
+  const shelfHasNew = useCoachStore((s) => s.shelfHasNew);
+  const tipsEnabled = usePrefsStore((s) => s.tipsEnabled);
+  const showShelfDot = shelfHasNew && tipsEnabled;
+
   return (
     <div className={styles.root} data-tauri-drag-region>
       <div className={styles.left} data-tauri-drag-region="false">
@@ -161,12 +169,13 @@ export function TopBar() {
         </button>
         <button
           className={styles.btn}
-          title="Keyboard shortcuts viewer (Ctrl+?)"
-          aria-label="Keyboard shortcuts"
+          title="Shortcuts & tips (Ctrl+?)"
+          aria-label="Shortcuts and tips"
           data-tauri-drag-region="false"
           onClick={() => useShortcutsModalStore.getState().openModal()}
         >
           <IconKeyboard />
+          {showShelfDot && <span className={styles.shelfDot} aria-hidden="true" />}
         </button>
         {/* Editor entry point — labeled (icon + text) so it's an unmistakable
             destination rather than just another glyph. A divider sets it apart

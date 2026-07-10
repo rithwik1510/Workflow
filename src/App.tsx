@@ -34,6 +34,7 @@ import { SessionsSidebar } from "@/components/SessionsSidebar";
 import { SettingsModal } from "@/components/SettingsModal";
 import { ShortcutsModal } from "@/components/ShortcutsModal";
 import { SplitMenu } from "@/components/SplitMenu";
+import { CoachChip } from "@/components/CoachChip";
 import { NewAttemptPopover } from "@/components/NewAttemptPopover";
 import { StatusBar } from "@/components/StatusBar";
 import { Toaster } from "@/components/Toaster";
@@ -43,6 +44,7 @@ import { installBranchPoller } from "@/sessions/branchPoller";
 import { installAgentTracker } from "@/sessions/agentTracker";
 import { installAttentionEscape } from "@/sessions/attentionEscape";
 import { claudeHooksStatus, installClaudeHooks } from "@/lib/claudeHooksClient";
+import { initCoach, disposeCoach } from "@/sessions/coach";
 import { onCommandEvent } from "@/sessions/commandTracker";
 import { runMigrationIfNeeded } from "@/sessions/migration";
 import { leaves } from "@/store/layout/tree";
@@ -182,6 +184,10 @@ export default function App() {
     // OS toast on a permission block, taskbar flash, and an overlay badge with
     // the fleet needs-you count — for the minimized/unfocused case.
     const disposeAttentionEscape = installAttentionEscape();
+    // Workflow coach (Plan 014): wire the detectors + graduation seams + the
+    // gate-6 pane-slot predicate. Master-switch guarded internally, so it is
+    // safe to install unconditionally; it observes nothing while tips are off.
+    initCoach();
     let cancelResume: (() => void) | undefined;
 
     const bootstrap = async () => {
@@ -266,6 +272,7 @@ export default function App() {
     return () => {
       if (unsubFinishHydration) unsubFinishHydration();
       cancelResume?.();
+      disposeCoach();
       disposeAttentionEscape();
       disposeAgentTracker();
       disposePoller();
@@ -454,6 +461,10 @@ export default function App() {
       <Toaster />
       <ConfirmDialog />
       <SplitMenu />
+      {/* Session-pair coach chip (Plan 014) — mounted once; renders only when
+          activeTip is a session-pair anchor. Pane-anchored chips live inside
+          each TerminalPane instead. */}
+      <CoachChip />
       <NewAttemptPopover />
       <ShortcutsModal />
       <SettingsModal />

@@ -11,6 +11,8 @@ vi.mock("@/lib/shellsClient", async (importOriginal) => {
 import { SettingsModal } from "@/components/SettingsModal";
 import { useSettingsModalStore } from "@/store/settingsModalStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePrefsStore } from "@/store/prefsStore";
+import { useCoachStore } from "@/store/coachStore";
 
 // Guards against a control being wired to the wrong dotted path — a typo no
 // other test catches (the optimistic write + disk persist would silently
@@ -45,5 +47,23 @@ describe("SettingsModal — control wiring", () => {
     fireEvent.click(screen.getByText("Editor")); // rail nav → editor category
     fireEvent.click(screen.getByLabelText("Soft wrap"));
     expect(set).toHaveBeenCalledWith("md_editor.soft_wrap", false);
+  });
+
+  it("wires the Interface Workflow-tips toggle to prefsStore.setTipsEnabled", () => {
+    const setTips = vi.fn();
+    usePrefsStore.setState({ tipsEnabled: true, setTipsEnabled: setTips });
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByText("Interface")); // rail nav → interface category
+    fireEvent.click(screen.getByLabelText("Workflow tips"));
+    expect(setTips).toHaveBeenCalledWith(false);
+  });
+
+  it("wires Reset learned tips to coachStore.resetLearnedTips", () => {
+    const reset = vi.fn();
+    useCoachStore.setState({ resetLearnedTips: reset });
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByText("Interface"));
+    fireEvent.click(screen.getByText("Reset learned tips"));
+    expect(reset).toHaveBeenCalled();
   });
 });

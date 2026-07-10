@@ -132,9 +132,9 @@ describe("TopBar — click handlers", () => {
     expect(mocks.splitMenuShowMock).toHaveBeenCalledTimes(1);
   });
 
-  it("clicking the ⌨ Keyboard shortcuts button opens the ShortcutsModal", () => {
+  it("clicking the ⌨ Shortcuts & tips button opens the ShortcutsModal", () => {
     const { getByLabelText } = render(<TopBar />);
-    fireEvent.click(getByLabelText("Keyboard shortcuts"));
+    fireEvent.click(getByLabelText("Shortcuts and tips"));
     expect(mocks.openShortcutsModalMock).toHaveBeenCalledTimes(1);
   });
 

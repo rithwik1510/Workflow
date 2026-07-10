@@ -32,6 +32,7 @@ import { leaves } from "@/store/layout/tree";
 import { nextPaneId } from "@/lib/paneIds";
 import { closeBusyPaneConfirm, closeLastPaneInSessionConfirm } from "@/lib/confirmStrings";
 import { pickAndCreateSession } from "@/lib/sessions/sessionEntryFlows";
+import { emitSessionNavigation } from "@/sessions/coachNav";
 import { pickFolder, pickEditorFile } from "@/lib/dialogClient";
 import { isPtyBusy } from "@/terminals/ptyClient";
 import { shouldSkipShortcut } from "@/hooks/shortcutTarget";
@@ -126,6 +127,10 @@ function cycleSession(delta: 1 | -1): boolean {
     ? flat.findIndex((s) => s.id === state.activeSessionId)
     : -1;
   const nextIdx = (idx + delta + flat.length) % flat.length;
+  // Coach: keyboard session cycling is a DELIBERATE navigation entry point
+  // (Plan 014 §5). Emit BEFORE enterSession so `from` is the outgoing session;
+  // the seam drops the non-friction cases (split open / split-pair reopen).
+  emitSessionNavigation(flat[nextIdx]!.id, "keyboard");
   // enterSession (not activateSession) so cycling onto a grouped session
   // re-opens its split, matching a sidebar click.
   useSessionsStore.getState().enterSession(flat[nextIdx]!.id);

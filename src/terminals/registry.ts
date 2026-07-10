@@ -18,6 +18,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { readClipboardText, writeClipboardText } from "@/lib/clipboardClient";
 import { noteBell } from "@/sessions/attentionTracker";
+import { noteTerminalInput } from "@/store/coachStore";
 import { xtermThemeFromCSS } from "@/lib/themes";
 import { currentMonoFamily } from "@/lib/fontPairs";
 import "@xterm/xterm/css/xterm.css";
@@ -46,6 +47,34 @@ interface TerminalEntry {
 }
 
 const entries = new Map<PaneId, TerminalEntry>();
+
+// ---------------------------------------------------------------------------
+// Workflow-coach seams (Plan 014 §4/§6). INJECTED so the registry keeps no
+// static dependency on the coach module (avoids an import cycle: coach.ts
+// imports the registry). Both default to no-ops until initCoach wires them.
+// ---------------------------------------------------------------------------
+
+interface CoachTerminalObserver {
+  /** First-ever open of a Terminal — attach per-pane observers here (term.element
+   *  exists). Reparenting never re-calls this, so listeners register once. */
+  open: (paneId: PaneId, term: Terminal) => void;
+  /** Terminal disposed — remove the per-pane observers. */
+  dispose: (paneId: PaneId) => void;
+}
+
+let coachTerminalObserver: CoachTerminalObserver | null = null;
+let coachEmptyShiftCopy: ((paneId: PaneId) => void) | null = null;
+
+/** Wire the coach's per-terminal lifecycle observer (Step 4). */
+export function setCoachTerminalObserver(obs: CoachTerminalObserver | null): void {
+  coachTerminalObserver = obs;
+}
+
+/** Wire the coach's failed-copy evidence hook (Step 4). Called when Ctrl+Shift+C
+ *  reaches the copy handler with an empty selection. */
+export function setCoachEmptyShiftCopy(fn: ((paneId: PaneId) => void) | null): void {
+  coachEmptyShiftCopy = fn;
+}
 
 // ---------------------------------------------------------------------------
 // WebGL context pool — bounds live WebGL renderers so a fleet of sessions can't
@@ -184,6 +213,11 @@ export function getOrCreateTerminal(paneId: PaneId): Terminal {
       if (selection) {
         void writeClipboardText(selection);
         term.clearSelection();
+      } else {
+        // Ctrl+Shift+C on an EMPTY selection — explicit proof the user believes
+        // something is selected. The coach's failed-copy evidence point (Plan
+        // 014 §4). Observe-only; the key stays consumed exactly as before.
+        coachEmptyShiftCopy?.(paneId);
       }
       e.preventDefault();
       return false;
@@ -363,6 +397,9 @@ export function attach(paneId: PaneId, host: HTMLElement): boolean {
     // provider is bound to the Terminal, not the DOM host.
     entry.linkDisposable = registerMdLinkProvider(entry.term, paneId);
     entry.fit.fit();
+    // Coach per-terminal observers (Plan 014): attach exactly once, on first
+    // open (term.element now exists). Reparent (Path 2) never re-registers.
+    coachTerminalObserver?.open(paneId, entry.term);
   }
 
   // WebGL is governed centrally by the pool. A visible pane gets a context now
@@ -389,6 +426,8 @@ export function detach(paneId: PaneId): void {
 export function disposeTerminal(paneId: PaneId): void {
   const entry = entries.get(paneId);
   if (!entry) return;
+  // Coach: remove per-terminal observers before the Terminal goes away.
+  coachTerminalObserver?.dispose(paneId);
   try {
     entry.linkDisposable?.dispose();
   } catch {
@@ -426,7 +465,13 @@ export function onTerminalData(
 ): { dispose(): void } {
   const entry = entries.get(paneId);
   if (!entry) throw new Error(`no terminal for paneId=${paneId}`);
-  return entry.term.onData(handler);
+  // Coach timing seam (Plan 014 §5): stamp the last-input time (metadata only —
+  // never the keys) so the coach won't interrupt right after the user typed.
+  // Cheap by contract: a single module-variable write per keystroke.
+  return entry.term.onData((data) => {
+    noteTerminalInput(paneId);
+    handler(data);
+  });
 }
 
 /** Send the mouse-mode-reset escape sequences to xterm itself (not the PTY). */

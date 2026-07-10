@@ -45,6 +45,10 @@
   font-size: 12px; cursor: pointer; text-decoration: underline;
 }
 .footerLink:hover { color: var(--accent); }
+/* Workflow tips row (Plan 014): the toggle sits beside a text action so
+ * "Reset learned tips" reads as secondary to the master switch. */
+.tipsControl { display: inline-flex; align-items: center; gap: var(--space-3); }
+
 .swatches { display: inline-flex; gap: 6px; }
 .swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
 .swatchActive { border-color: var(--fg-0); }
