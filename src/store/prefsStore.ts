@@ -30,12 +30,17 @@ export interface PrefsState {
   /** When ON (default), pasting text that contains a newline into a terminal
    *  asks first — a stray multiline paste EXECUTES in most shells (Plan 012). */
   warnMultilinePaste: boolean;
+  /** Master switch for the workflow coach (Plan 014, default ON). When OFF the
+   *  coach is OBSERVATION-off: no chips, no shelf dot, and detectors record
+   *  nothing — see coachStore. Toggling off clears any live chip. */
+  tipsEnabled: boolean;
 }
 
 interface PrefsActions {
   setOsNotifications: (on: boolean) => void;
   setToastOnTurnComplete: (on: boolean) => void;
   setWarnMultilinePaste: (on: boolean) => void;
+  setTipsEnabled: (on: boolean) => void;
   reset: () => void;
 }
 
@@ -45,6 +50,7 @@ const DEFAULTS: PrefsState = {
   osNotifications: true,
   toastOnTurnComplete: false,
   warnMultilinePaste: true,
+  tipsEnabled: true,
 };
 
 export const usePrefsStore = create<PrefsStore>()(
@@ -67,11 +73,17 @@ export const usePrefsStore = create<PrefsStore>()(
           s.warnMultilinePaste = on;
         }),
 
+      setTipsEnabled: (on) =>
+        set((s) => {
+          s.tipsEnabled = on;
+        }),
+
       reset: () =>
         set((s) => {
           s.osNotifications = DEFAULTS.osNotifications;
           s.toastOnTurnComplete = DEFAULTS.toastOnTurnComplete;
           s.warnMultilinePaste = DEFAULTS.warnMultilinePaste;
+          s.tipsEnabled = DEFAULTS.tipsEnabled;
         }),
     })),
     {
@@ -84,6 +96,7 @@ export const usePrefsStore = create<PrefsStore>()(
         osNotifications: state.osNotifications,
         toastOnTurnComplete: state.toastOnTurnComplete,
         warnMultilinePaste: state.warnMultilinePaste,
+        tipsEnabled: state.tipsEnabled,
       }),
     }
   )

@@ -3,7 +3,13 @@
 
 import { create } from "zustand";
 
-export type SettingsCategory = "appearance" | "terminal" | "editor" | "sidebar" | "agents";
+export type SettingsCategory =
+  | "appearance"
+  | "terminal"
+  | "editor"
+  | "sidebar"
+  | "agents"
+  | "interface";
 
 interface State {
   open: boolean;

@@ -23,6 +23,7 @@ import {
 import { useAgentStore } from "@/store/agentStore";
 import { usePaneResumeStore } from "@/store/paneResumeStore";
 import { usePrefsStore } from "@/store/prefsStore";
+import { useCoachStore } from "@/store/coachStore";
 import { useToastStore } from "@/store/toastStore";
 import { useMdStore } from "@/store/mdStore";
 import { detectShells, shellLabel, shellToConfigId } from "@/lib/shellsClient";
@@ -37,6 +38,7 @@ const CATEGORIES: { id: SettingsCategory; label: string }[] = [
   { id: "editor", label: "Editor" },
   { id: "sidebar", label: "Sidebar" },
   { id: "agents", label: "Agents" },
+  { id: "interface", label: "Interface" },
 ];
 
 // Theme presets — the four curated palettes that ship in v0.2. Swatch color
@@ -90,6 +92,12 @@ export function SettingsModal() {
   // Multiline-paste guard (Plan 012). Behavioral UI pref → prefsStore.
   const warnMultilinePaste = usePrefsStore((s) => s.warnMultilinePaste);
   const setWarnMultilinePaste = usePrefsStore((s) => s.setWarnMultilinePaste);
+
+  // Workflow coach master switch (Plan 014). Pref → prefsStore; the learned
+  // history it gates lives in coachStore, which "Reset learned tips" clears.
+  const tipsEnabled = usePrefsStore((s) => s.tipsEnabled);
+  const setTipsEnabled = usePrefsStore((s) => s.setTipsEnabled);
+  const resetLearnedTips = useCoachStore((s) => s.resetLearnedTips);
   useEffect(() => {
     if (!open) return;
     void claudeHooksStatus()
@@ -346,6 +354,29 @@ export function SettingsModal() {
                   }
                 />
               </>
+            )}
+
+            {category === "interface" && (
+              <SettingRow
+                label="Workflow tips"
+                description="Occasionally surface a keyboard or workflow shortcut the moment it would help — at most one interruption a day, and never for something you already do. Off means total silence. Reset relearns from scratch."
+                control={
+                  <div className={styles.tipsControl}>
+                    <Toggle
+                      ariaLabel="Workflow tips"
+                      checked={tipsEnabled}
+                      onChange={setTipsEnabled}
+                    />
+                    <button
+                      type="button"
+                      className={styles.footerLink}
+                      onClick={() => resetLearnedTips()}
+                    >
+                      Reset learned tips
+                    </button>
+                  </div>
+                }
+              />
             )}
           </div>
         </div>

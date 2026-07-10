@@ -35,12 +35,20 @@ describe("prefsStore — behavioral UI preferences", () => {
     expect(usePrefsStore.getState().toastOnTurnComplete).toBe(true);
   });
 
-  it("reset restores both defaults", () => {
+  it("workflow tips master switch defaults ON and toggles", () => {
+    expect(usePrefsStore.getState().tipsEnabled).toBe(true);
+    usePrefsStore.getState().setTipsEnabled(false);
+    expect(usePrefsStore.getState().tipsEnabled).toBe(false);
+  });
+
+  it("reset restores all defaults", () => {
     const s = usePrefsStore.getState();
     s.setOsNotifications(false);
     s.setToastOnTurnComplete(true);
+    s.setTipsEnabled(false);
     s.reset();
     expect(usePrefsStore.getState().osNotifications).toBe(true);
     expect(usePrefsStore.getState().toastOnTurnComplete).toBe(false);
+    expect(usePrefsStore.getState().tipsEnabled).toBe(true);
   });
 });
