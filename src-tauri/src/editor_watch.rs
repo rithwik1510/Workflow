@@ -64,10 +64,7 @@ impl WatchSet {
     /// and the caller must start watching it; None when already watched.
     pub fn add(&mut self, path: &Path) -> Option<PathBuf> {
         self.files.insert(norm(path));
-        let dir = match path.parent() {
-            Some(d) => d.to_path_buf(),
-            None => return None,
-        };
+        let dir = path.parent()?.to_path_buf();
         let key = norm(&dir);
         let entry = self.dirs.entry(key).or_insert((dir.clone(), 0));
         entry.1 += 1;
