@@ -372,6 +372,17 @@ describe("coach — scroll hunt", () => {
     dwell(d);
     expect(useCoachStore.getState().tips["scroll-hunt"]).toBeUndefined();
   });
+
+  it("a search opened while tips are off doesn't burn the run's graduation", () => {
+    usePrefsStore.getState().setTipsEnabled(false);
+    const d = createScrollHuntDetector();
+    d.onSearchOpened(); // observation-off: must not set the once-per-run flag
+    expect(useCoachStore.getState().tips["scroll-hunt"]).toBeUndefined();
+    // Re-enable → the NEXT open is a fresh observation and graduates.
+    usePrefsStore.getState().setTipsEnabled(true);
+    d.onSearchOpened();
+    expect(useCoachStore.getState().tips["scroll-hunt"].graduatedAt).toBeDefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -389,6 +400,19 @@ describe("coach — initCoach wiring", () => {
     useSessionsStore.getState().activateSession(a);
     useSessionsStore.getState().openSplitWith(b); // creates a durable group
     initCoach();
+    expect(useCoachStore.getState().tips["session-thrash"].graduatedAt).toBeDefined();
+  });
+
+  it("re-enabling tips mid-run re-runs the retro-graduation it skipped while off", () => {
+    const a = useSessionsStore.getState().createSession("C:/proj");
+    const b = useSessionsStore.getState().createSession("C:/proj");
+    useSessionsStore.getState().activateSession(a);
+    useSessionsStore.getState().openSplitWith(b); // durable group exists…
+    usePrefsStore.getState().setTipsEnabled(false);
+    initCoach(); // …but tips are off, so the wiring-time retro-graduation no-ops
+    expect(useCoachStore.getState().tips["session-thrash"]?.graduatedAt).toBeUndefined();
+    // Enable mid-run: the user demonstrably knows the feature — never teach it.
+    usePrefsStore.getState().setTipsEnabled(true);
     expect(useCoachStore.getState().tips["session-thrash"].graduatedAt).toBeDefined();
   });
 

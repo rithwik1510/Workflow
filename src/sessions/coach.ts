@@ -310,9 +310,12 @@ export function createScrollHuntDetector() {
     }
   }
 
-  /** Terminal search opened — graduate (Ctrl+F is the taught action). */
+  /** Terminal search opened — graduate (Ctrl+F is the taught action). While
+   *  tips are OFF this is observation-off like everything else: the flag stays
+   *  unset so the first open AFTER re-enabling still graduates (a fresh
+   *  observation, not a replay). */
   function onSearchOpened(): void {
-    if (searchOpened) return;
+    if (!tipsEnabled() || searchOpened) return;
     searchOpened = true;
     clearAllDwell();
     coach().graduate("scroll-hunt");
@@ -466,7 +469,11 @@ export function initCoach(): void {
 
   // Master switch: turning tips OFF cancels every pending arm/dwell timer and
   // resets the in-run episode machines. (coachStore's own subscription clears
-  // the live chip.) Re-enabling starts fresh — nothing replays.
+  // the live chip.) Re-enabling starts fresh — nothing replays — but the two
+  // observations that otherwise only run at wiring time DO re-run: the
+  // split-group retro-graduation and the agent-identity reconcile were no-ops
+  // while off (graduate/evaluate guard on tipsEnabled), so without this a user
+  // who enables tips mid-run could be taught a feature they already use.
   unsubs.push(
     usePrefsStore.subscribe((s, prev) => {
       if (prev.tipsEnabled && !s.tipsEnabled) {
@@ -474,6 +481,12 @@ export function initCoach(): void {
         thrash.clear();
         preciseSignals.clear();
         scrollHunt.clear();
+      }
+      if (!prev.tipsEnabled && s.tipsEnabled) {
+        if (useSessionsStore.getState().splitGroups.length > 0) {
+          coach().graduate("session-thrash");
+        }
+        preciseSignals.evaluate();
       }
     })
   );
