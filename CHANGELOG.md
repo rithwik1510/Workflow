@@ -6,6 +6,11 @@ All notable changes to Lume are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-10
+
+The app learns to teach itself — quietly — and a few sharp edges come off the
+fleet.
+
 ### Added
 - **Workflow coach — a rescue tip at the moment it helps, never Clippy.** Lume
   now teaches its own faster paths only when you hit the friction they solve:
@@ -21,6 +26,19 @@ All notable changes to Lume are documented here. Format follows
   dot on the ⌨ icon when something new lands. Every chip carries **Don't suggest
   this**, and one **Workflow tips** switch (Settings → Interface) turns the whole
   thing off — observation and all — with **Reset learned tips** to start over.
+
+### Changed
+- **Branch lists hide agent scratch branches.** The `worktree-agent-<hex>`
+  branches Claude Code's sub-agents leave behind no longer clutter the fork-base
+  or branch-switch pickers — only branches a human would actually pick appear.
+
+### Fixed
+- **The Quick Viewer stays with the session that opened it.** A glance panel is
+  project-scoped now; switching sessions no longer drags someone else's file
+  along into a different project.
+- **A session stays "working" while its background sub-agents run.** The state
+  no longer flips to your-move the instant the top-level turn yields — if child
+  agents are still going, the pane keeps its working mark.
 
 ## [0.1.0] — 2026-07-04
 

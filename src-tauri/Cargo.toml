@@ -1,6 +1,6 @@
 [package]
 name = "lume"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lume — smooth tiled terminals + markdown editor on the desktop"
 edition = "2021"
 license = "MIT"

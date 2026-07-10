@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/rithwik1510/Lume/releases"><img alt="Status" src="https://img.shields.io/badge/status-stable-5fa8ff?style=flat-square&labelColor=0a0a0a" /></a>
-  <a href="https://github.com/rithwik1510/Lume/releases/tag/v0.1.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.1.0-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
+  <a href="https://github.com/rithwik1510/Lume/releases/tag/v0.2.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.2.0-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
   <a href="https://github.com/rithwik1510/Lume/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows_·_mac/linux_soon-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-v2-1a1a1a?style=flat-square&labelColor=0a0a0a&color=222222" />
@@ -240,6 +240,7 @@ spike-archive/        Weekend 0 spike source (preserved for reference)
 ## Roadmap
 
 - [x] Windows 0.1.0 — first stable release
+- [x] Windows 0.2.0 — the workflow coach (teach the fast paths, never nag)
 - [x] Visibility-driven render governor (bound cost to on-screen sessions)
 - [x] Precise agent attention — in-window signals + OS toasts/badge when away
 - [x] Session restore & agent resume across restarts
