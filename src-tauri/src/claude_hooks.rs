@@ -21,7 +21,21 @@ use crate::error::{AppError, AppResult};
 
 /// Events we hook. Non-tool events (all but Notification) need no matcher;
 /// Notification uses an empty matcher (matches every notification).
-const NON_TOOL_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+///
+/// SubagentStart/SubagentStop track BACKGROUND subagent lifecycle: the main
+/// agent's `Stop` fires when ITS turn ends even while background subagents keep
+/// running, so without these a session flips to "your move" while work is still
+/// happening. A subagent hook with no matcher matches every subagent (matchers
+/// would filter by agent type, which we don't want to). See sessions/
+/// agentTracker.ts for how the count gates the sidebar signal back to "working".
+const NON_TOOL_EVENTS: &[&str] = &[
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "SessionEnd",
+    "SubagentStart",
+    "SubagentStop",
+];
 const NOTIFICATION_EVENT: &str = "Notification";
 
 pub fn claude_settings_path() -> AppResult<PathBuf> {
@@ -269,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_into_empty_installs_all_five_events() {
+    fn merge_into_empty_installs_all_events() {
         let out = merge_hooks("", SHIM).unwrap();
         assert!(hooks_installed(&out, SHIM));
         let v: Value = serde_json::from_str(&out).unwrap();
@@ -285,6 +299,15 @@ mod tests {
             assert_eq!(group["hooks"][0]["async"], json!(true));
             assert_eq!(group["hooks"][0]["timeout"], json!(10));
         }
+        // The subagent lifecycle events are installed (background-turn tracking).
+        assert!(event_has_command(
+            hooks.get("SubagentStart").unwrap(),
+            SHIM_FWD
+        ));
+        assert!(event_has_command(
+            hooks.get("SubagentStop").unwrap(),
+            SHIM_FWD
+        ));
         // Notification uses an empty matcher.
         let notif = &hooks.get("Notification").unwrap()[0];
         assert_eq!(notif["matcher"], json!(""));

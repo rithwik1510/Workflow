@@ -32,6 +32,7 @@ import {
   paneHasLiveAgent,
 } from "@/sessions/attentionTracker";
 import { handleOsc133, disposeCommandTracker } from "@/sessions/commandTracker";
+import { sessionAgentView } from "@/sessions/sessionSignal";
 
 function sessionWithPane(folder: string, paneId: string): string {
   const s = useSessionsStore.getState();
@@ -41,7 +42,12 @@ function sessionWithPane(folder: string, paneId: string): string {
 }
 
 const phase = (paneId: string) => useAgentStore.getState().panes[paneId]?.phase;
+const subagents = (paneId: string) => useAgentStore.getState().panes[paneId]?.liveSubagents;
 const working = (id: string) => useSessionsStore.getState().sessions[id].working;
+/** The sidebar signal a background session would render, derived exactly as
+ *  SessionRow does (effective phase → agentSignal). */
+const sidebarSignal = (id: string) =>
+  sessionAgentView(useAgentStore.getState().panes, useSessionsStore.getState().sessions[id]).signal;
 
 function ev(paneId: string, event: string, extra: Partial<AgentEvent> = {}): AgentEvent {
   return { paneId, event, ...extra };
@@ -93,6 +99,11 @@ describe("agentTracker — transitionFor (pure)", () => {
     });
   });
 
+  it("maps subagent lifecycle events to count deltas, not phase moves", () => {
+    expect(transitionFor("SubagentStart")).toEqual({ type: "subagent", delta: 1 });
+    expect(transitionFor("SubagentStop")).toEqual({ type: "subagent", delta: -1 });
+  });
+
   it("tolerates unknown events and unknown notification kinds", () => {
     expect(transitionFor("PreToolUse")).toEqual({ type: "ignore" });
     expect(transitionFor("SomethingNew")).toEqual({ type: "ignore" });
@@ -138,6 +149,117 @@ describe("agentTracker — state machine over a session lifecycle", () => {
     applyAgentEvent(ev("pane-bg", "SessionStart"));
     applyAgentEvent(ev("pane-bg", "Notification", { kind: "idle_prompt" }));
     expect(phase("pane-bg")).toBe("your-move");
+  });
+});
+
+describe("agentTracker — background subagents keep the session working past Stop", () => {
+  // The captured edge case (pane-119.jsonl): the MAIN agent's Stop fires while a
+  // background subagent is still running, so the session must NOT flip to the
+  // your-move dot until the last subagent reports done.
+  it("Stop while a subagent is live still reads working, then your-move on SubagentStop", () => {
+    const bg = sessionWithPane("/bg", "pane-bg");
+    const fg = sessionWithPane("/fg", "pane-fg");
+    useSessionsStore.getState().activateSession(fg);
+
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    applyAgentEvent(ev("pane-bg", "SubagentStart"));
+    expect(subagents("pane-bg")).toBe(1);
+    expect(working(bg)).toBe(true);
+
+    // Main turn ends but the subagent runs on: phase is your-move underneath,
+    // yet the session still presents as working.
+    applyAgentEvent(ev("pane-bg", "Stop"));
+    expect(phase("pane-bg")).toBe("your-move");
+    expect(subagents("pane-bg")).toBe(1); // carried across the Stop
+    expect(working(bg)).toBe(true);
+    expect(sidebarSignal(bg)).toBe("working");
+
+    // The subagent finishes → now it's genuinely your move.
+    applyAgentEvent(ev("pane-bg", "SubagentStop"));
+    expect(subagents("pane-bg")).toBe(0);
+    expect(working(bg)).toBe(false);
+    expect(sidebarSignal(bg)).toBe("your-move");
+  });
+
+  it("the auto-resume UserPromptSubmit flips it back to working", () => {
+    const bg = sessionWithPane("/bg", "pane-bg");
+    const fg = sessionWithPane("/fg", "pane-fg");
+    useSessionsStore.getState().activateSession(fg);
+
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    applyAgentEvent(ev("pane-bg", "SubagentStart"));
+    applyAgentEvent(ev("pane-bg", "Stop"));
+    applyAgentEvent(ev("pane-bg", "SubagentStop"));
+    expect(sidebarSignal(bg)).toBe("your-move");
+
+    // Main agent auto-resumes to process the subagent's result.
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    expect(phase("pane-bg")).toBe("working");
+    expect(sidebarSignal(bg)).toBe("working");
+  });
+
+  it("permission still outranks a live subagent", () => {
+    const bg = sessionWithPane("/bg", "pane-bg");
+    const fg = sessionWithPane("/fg", "pane-fg");
+    useSessionsStore.getState().activateSession(fg);
+
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    applyAgentEvent(ev("pane-bg", "SubagentStart"));
+    applyAgentEvent(ev("pane-bg", "Notification", { kind: "permission_prompt" }));
+    expect(sidebarSignal(bg)).toBe("permission");
+    expect(working(bg)).toBe(false); // blocked, even with a subagent live
+  });
+
+  it("count floors at 0 — a stray SubagentStop can't go negative", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "SubagentStop"));
+    // No entry-less crash, no negative: the pane stays at 0.
+    expect(subagents("pane-bg")).toBe(0);
+  });
+
+  it("an out-of-order SubagentStart before SessionStart seeds a live claude entry", () => {
+    const bg = sessionWithPane("/bg", "pane-bg");
+    const fg = sessionWithPane("/fg", "pane-fg");
+    useSessionsStore.getState().activateSession(fg);
+
+    applyAgentEvent(ev("pane-bg", "SubagentStart"));
+    expect(useAgentStore.getState().panes["pane-bg"]).toMatchObject({
+      agent: "claude",
+      source: "hook",
+      liveSubagents: 1,
+    });
+    expect(paneHasLiveAgent("pane-bg")).toBe(true);
+    expect(sidebarSignal(bg)).toBe("working");
+  });
+
+  it("a fresh user turn resets the count so a missed SubagentStop can't leak", () => {
+    const bg = sessionWithPane("/bg", "pane-bg");
+    const fg = sessionWithPane("/fg", "pane-fg");
+    useSessionsStore.getState().activateSession(fg);
+
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    applyAgentEvent(ev("pane-bg", "SubagentStart")); // never gets its SubagentStop
+    applyAgentEvent(ev("pane-bg", "Stop"));
+    expect(subagents("pane-bg")).toBe(1); // still leaked into your-move state
+
+    // The next turn wipes the stale count — the leak is bounded to one turn.
+    applyAgentEvent(ev("pane-bg", "UserPromptSubmit"));
+    expect(subagents("pane-bg")).toBe(0);
+    applyAgentEvent(ev("pane-bg", "Stop"));
+    expect(sidebarSignal(bg)).toBe("your-move"); // recovers cleanly
+  });
+
+  it("SessionEnd clears the subagent count with the entry", () => {
+    sessionWithPane("/bg", "pane-bg");
+    applyAgentEvent(ev("pane-bg", "SessionStart"));
+    applyAgentEvent(ev("pane-bg", "SubagentStart"));
+    applyAgentEvent(ev("pane-bg", "SessionEnd"));
+    expect(useAgentStore.getState().panes["pane-bg"]).toBeUndefined();
   });
 });
 

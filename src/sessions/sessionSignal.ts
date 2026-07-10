@@ -13,7 +13,7 @@ import {
   type Session,
   type SessionsState,
 } from "@/store/sessionsStore";
-import type { AgentName, AgentPhase, PaneAgent } from "@/store/agentStore";
+import { effectivePhase, type AgentName, type AgentPhase, type PaneAgent } from "@/store/agentStore";
 import type { PaneId } from "@/types";
 
 /** The agent-derived part of a session's signal (class A). `null` = no live
@@ -47,16 +47,24 @@ export function sessionAgentView(
 ): SessionAgentView {
   if (!session.layoutRoot) return { agents: [], signal: null, signalAgent: null };
   const agents: AgentName[] = [];
-  let best: PaneAgent | null = null;
+  // Rank by EFFECTIVE phase (folds live background subagents into `working`) so
+  // a pane whose main agent already Stopped but still has subagents running
+  // out-ranks its own `your-move` and keeps the session reading as working.
+  let bestPhase: AgentPhase = "idle";
+  let bestAgent: AgentName | null = null;
   for (const paneId of treeLeaves(session.layoutRoot)) {
     const pa = panes[paneId];
     if (!pa) continue;
     if (!agents.includes(pa.agent)) agents.push(pa.agent);
-    if (best === null || PHASE_RANK[pa.phase] > PHASE_RANK[best.phase]) best = pa;
+    const eff = effectivePhase(pa);
+    if (bestAgent === null || PHASE_RANK[eff] > PHASE_RANK[bestPhase]) {
+      bestPhase = eff;
+      bestAgent = pa.agent;
+    }
   }
   const signal: AgentSignal | null =
-    best && best.phase !== "idle" ? (best.phase as AgentSignal) : null;
-  return { agents, signal, signalAgent: best?.agent ?? null };
+    bestAgent && bestPhase !== "idle" ? (bestPhase as AgentSignal) : null;
+  return { agents, signal, signalAgent: bestAgent };
 }
 
 /** The final indicator a sidebar row/roll-up should render. */

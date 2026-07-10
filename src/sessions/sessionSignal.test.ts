@@ -95,6 +95,35 @@ describe("sessionSignal — sessionAgentView aggregation", () => {
   });
 });
 
+describe("sessionSignal — live subagents fold the effective phase to working", () => {
+  const withSubagents = (phase: PaneAgent["phase"], liveSubagents: number): PaneAgent => ({
+    ...agent(phase),
+    liveSubagents,
+  });
+
+  it("a your-move pane with a live subagent reads as working (the bug)", () => {
+    // Main agent Stopped (your-move) while a background subagent runs on: the
+    // session must keep the working square, not flip to the your-move dot.
+    const panes: Record<PaneId, PaneAgent> = { p1: withSubagents("your-move", 1) };
+    expect(sessionAgentView(panes, { layoutRoot: leaf("p1") }).signal).toBe("working");
+  });
+
+  it("an idle pane with a live subagent reads as working", () => {
+    const panes: Record<PaneId, PaneAgent> = { p1: withSubagents("idle", 2) };
+    expect(sessionAgentView(panes, { layoutRoot: leaf("p1") }).signal).toBe("working");
+  });
+
+  it("permission still outranks live subagents (the block is more urgent)", () => {
+    const panes: Record<PaneId, PaneAgent> = { p1: withSubagents("permission", 3) };
+    expect(sessionAgentView(panes, { layoutRoot: leaf("p1") }).signal).toBe("permission");
+  });
+
+  it("once the last subagent finishes, your-move surfaces again", () => {
+    const panes: Record<PaneId, PaneAgent> = { p1: withSubagents("your-move", 0) };
+    expect(sessionAgentView(panes, { layoutRoot: leaf("p1") }).signal).toBe("your-move");
+  });
+});
+
 describe("sessionSignal — computeSessionSignal priority", () => {
   const base = { visible: false, unread: false, working: false, agentSignal: null } as const;
 

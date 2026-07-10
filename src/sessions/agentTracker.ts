@@ -19,7 +19,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 
-import { useAgentStore, type PaneAgent } from "@/store/agentStore";
+import { useAgentStore, effectivePhase, type PaneAgent } from "@/store/agentStore";
 import {
   useSessionsStore,
   findSessionForPane,
@@ -52,6 +52,7 @@ export interface AgentEvent {
  *  handling trivial. Exported for table tests. */
 export type AgentTransition =
   | { type: "phase"; phase: PaneAgent["phase"] }
+  | { type: "subagent"; delta: 1 | -1 }
   | { type: "end" }
   | { type: "ignore" };
 
@@ -65,6 +66,14 @@ export function transitionFor(event: string, kind?: string): AgentTransition {
       return { type: "phase", phase: "your-move" };
     case "SessionEnd":
       return { type: "end" };
+    // Background subagent lifecycle: these do NOT move the MAIN agent's phase
+    // (the main turn can be `your-move` while a background subagent runs on).
+    // They only adjust the pane's live-subagent count, which effectivePhase
+    // folds back into `working` — the fix for "Stop fires while subagents run".
+    case "SubagentStart":
+      return { type: "subagent", delta: 1 };
+    case "SubagentStop":
+      return { type: "subagent", delta: -1 };
     case "Notification":
       // permission_prompt is the money signal (blocked mid-turn); idle_prompt
       // collapses into "your move" per the locked Design. Any other kind is an
@@ -91,6 +100,22 @@ export function applyAgentEvent(evt: AgentEvent): void {
     // Plan 009: a clean SessionEnd means the agent shouldn't re-offer a resume
     // on next launch — keep the record but clear its alive flag.
     usePaneResumeStore.getState().markEnded(evt.paneId);
+    return;
+  }
+
+  if (t.type === "subagent") {
+    // A background subagent started/finished. Adjust the count (adjustSubagents
+    // seeds the implied Claude entry on an out-of-order SubagentStart), then
+    // recompute the pane's effective phase so the session's `working` fact
+    // reflects "subagents still running" even after the main agent's Stop.
+    store.adjustSubagents(evt.paneId, t.delta);
+    // Re-read post-mutation: `store` is the pre-adjust getState() snapshot.
+    const pa = useAgentStore.getState().panes[evt.paneId];
+    if (!pa) return; // a stray SubagentStop for an unknown pane — nothing to do
+    // The pane is now agent-owned (a subagent is a Claude hook signal); keep
+    // cadence/133 suppressed for it exactly as any phase event would.
+    setAgentActive(evt.paneId, true);
+    noteAgentWorking(evt.paneId, effectivePhase(pa) === "working");
     return;
   }
 
@@ -131,12 +156,20 @@ export function applyAgentEvent(evt: AgentEvent): void {
   if (phase === "your-move" && paneSessionIsVisible(evt.paneId)) phase = "idle";
 
   const prev = store.panes[evt.paneId];
+  // A new user turn (UserPromptSubmit) is a clean slate: reset the subagent
+  // count so a missed SubagentStop can never leak a stuck spinner past the turn
+  // it belonged to. Any other transition carries the count forward — crucially
+  // Stop, which fires while background subagents are still live. (On the normal
+  // auto-resume path the last SubagentStop drives the count to 0 BEFORE this
+  // UserPromptSubmit, so the reset is a no-op there.)
+  const liveSubagents = evt.event === "UserPromptSubmit" ? 0 : prev?.liveSubagents ?? 0;
   const next: PaneAgent = {
     // These ARE Claude's hooks: always claude, always hook-sourced. A command-
     // derived identity for this pane is upgraded to the authoritative hook one.
     agent: "claude",
     phase,
     source: "hook",
+    liveSubagents,
     sessionId: evt.sessionId ?? prev?.sessionId,
     transcriptPath: evt.transcriptPath ?? prev?.transcriptPath,
   };
@@ -145,8 +178,10 @@ export function applyAgentEvent(evt: AgentEvent): void {
   // Class A now owns this pane (idempotent): retires any pending cadence guess
   // and suppresses future cadence/133 noise for it.
   setAgentActive(evt.paneId, true);
-  // Only "working" is an in-progress turn; permission/your-move/idle are not.
-  noteAgentWorking(evt.paneId, phase === "working");
+  // The session is "working" whenever the MAIN turn is in progress OR a
+  // background subagent is still live (effectivePhase folds the latter in), so
+  // a premature Stop can't drop the spinner while subagents run.
+  noteAgentWorking(evt.paneId, effectivePhase(next) === "working");
   // Keep the permission-exit output gate in sync with the phase.
   noteAgentPermission(evt.paneId, phase === "permission");
 }

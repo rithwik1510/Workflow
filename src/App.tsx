@@ -42,6 +42,7 @@ import { beginResize, endResize } from "@/components/resizeBus";
 import { installBranchPoller } from "@/sessions/branchPoller";
 import { installAgentTracker } from "@/sessions/agentTracker";
 import { installAttentionEscape } from "@/sessions/attentionEscape";
+import { claudeHooksStatus, installClaudeHooks } from "@/lib/claudeHooksClient";
 import { onCommandEvent } from "@/sessions/commandTracker";
 import { runMigrationIfNeeded } from "@/sessions/migration";
 import { leaves } from "@/store/layout/tree";
@@ -165,6 +166,18 @@ export default function App() {
     // `agent-event` stream so hooked Claude Code sessions drive the sidebar's
     // precise signals instead of the output-cadence guess.
     const disposeAgentTracker = installAgentTracker();
+    // Hook reconcile: users who enabled Precise Claude Code signals BEFORE the
+    // SubagentStart/SubagentStop events existed have an install that's missing
+    // them. If our hooks are already present, re-run the (idempotent, additive)
+    // install once at boot to top up the new events — nothing else is touched,
+    // and a disabled/absent install is left alone. Fully best-effort.
+    void claudeHooksStatus()
+      .then((installed) => {
+        if (installed) return installClaudeHooks();
+      })
+      .catch(() => {
+        /* degrade silently — the toggle still works on demand */
+      });
     // Attention escape (Plan 011): carry the class-A signals OUT of the window —
     // OS toast on a permission block, taskbar flash, and an overlay badge with
     // the fleet needs-you count — for the minimized/unfocused case.

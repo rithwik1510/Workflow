@@ -36,9 +36,30 @@ export interface PaneAgent {
   agent: AgentName;
   phase: AgentPhase;
   source: AgentSource;
+  /** How many background subagents are live in this pane right now (Claude Code
+   *  `SubagentStart` seen, no matching `SubagentStop`). The main agent's `Stop`
+   *  (→ `your-move`) fires while background subagents keep running, so a session
+   *  would wrongly read "your move" mid-work; a positive count folds the pane's
+   *  effective phase back to `working` (see effectivePhase). Bounded to a single
+   *  turn (reset on UserPromptSubmit) and cleared on SessionEnd, so a missed
+   *  SubagentStop can never leak a stuck spinner past the current turn. */
+  liveSubagents?: number;
   /** Recorded from SessionStart — dashboard fuel for later plans. */
   sessionId?: string;
   transcriptPath?: string;
+}
+
+/** The phase a pane effectively presents, folding in live background subagents.
+ *  `permission` still outranks everything (a blocked MAIN agent is more urgent
+ *  than background work); otherwise a pane with any live subagent reads as
+ *  `working` even if the main agent already ended its turn (`your-move`) or is
+ *  idle. This is the single rule that keeps the sidebar's tumbling square up
+ *  while subagents run — consumed by both sessionSignal (the indicator) and
+ *  agentTracker (the session `working` fact) so the two never disagree. */
+export function effectivePhase(pa: Pick<PaneAgent, "phase" | "liveSubagents">): AgentPhase {
+  if (pa.phase === "permission") return "permission";
+  if ((pa.liveSubagents ?? 0) > 0) return "working";
+  return pa.phase;
 }
 
 interface AgentStoreState {
@@ -49,6 +70,12 @@ interface AgentStoreState {
   sawSessionStart: boolean;
   setPaneAgent: (paneId: PaneId, agent: PaneAgent) => void;
   removePaneAgent: (paneId: PaneId) => void;
+  /** Bump this pane's live-subagent count by `delta` (floored at 0). A positive
+   *  delta for a pane with no entry yet (an out-of-order SubagentStart before
+   *  its SessionStart) seeds the implied live Claude hook entry; a negative
+   *  delta for an unknown pane is a no-op. Returns nothing — callers read the
+   *  updated pane back to drive the session `working` fact. */
+  adjustSubagents: (paneId: PaneId, delta: number) => void;
   markSessionStart: () => void;
   /** View-acknowledgment (mirrors activateSession's `unread = false`): a
    *  "your move" you've now seen calms back to idle. Permission is exempt —
@@ -72,6 +99,25 @@ export const useAgentStore = create<AgentStoreState>()(
     removePaneAgent: (paneId) =>
       set((s) => {
         delete s.panes[paneId];
+      }),
+    adjustSubagents: (paneId, delta) =>
+      set((s) => {
+        const pa = s.panes[paneId];
+        if (pa) {
+          pa.liveSubagents = Math.max(0, (pa.liveSubagents ?? 0) + delta);
+        } else if (delta > 0) {
+          // SubagentStart before we saw the main SessionStart (out of order or a
+          // dropped line): a running subagent proves Claude is live here, so
+          // seed the hook-owned entry it belongs to (phase idle; the count is
+          // what makes it read as working).
+          s.panes[paneId] = {
+            agent: "claude",
+            phase: "idle",
+            source: "hook",
+            liveSubagents: delta,
+          };
+        }
+        // delta <= 0 with no entry: nothing to decrement — ignore.
       }),
     markSessionStart: () =>
       set((s) => {
