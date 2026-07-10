@@ -15,6 +15,7 @@ import { findFileByName } from "@/lib/fileSearch";
 import { watchEditorFile, unwatchEditorFile } from "@/lib/editorWatch";
 import { tauriPersistStorage } from "@/lib/persistStorage";
 import { useConfirmStore } from "@/store/confirmStore";
+import { useSessionsStore } from "@/store/sessionsStore";
 import { useToastStore } from "@/store/toastStore";
 
 export type EditorTabKind = "markdown" | "code";
@@ -58,6 +59,10 @@ export interface QuickViewerState {
   open: boolean;
   path: string | null;
   content: string;
+  /** The session that opened this glance panel. The Quick Viewer belongs to its
+   *  project — App renders it only while this is the active session, so it never
+   *  follows you into other sessions. Null when closed. */
+  sessionId: string | null;
 }
 
 export type MdEditorMode = "off" | "full";
@@ -120,7 +125,7 @@ export const useMdStore = create<MdStoreState>()(
       mdEditorMode: "off",
       tabs: [],
       activeTabId: null,
-      quickViewer: { open: false, path: null, content: "" },
+      quickViewer: { open: false, path: null, content: "", sessionId: null },
       focusedSurface: null,
 
       // Try each candidate in order; open the Quick Viewer on the first that
@@ -140,8 +145,9 @@ export const useMdStore = create<MdStoreState>()(
             continue; // try the next candidate root
           }
           if (req !== _qvReq) return;
+          const owner = useSessionsStore.getState().activeSessionId;
           set((s) => {
-            s.quickViewer = { open: true, path, content };
+            s.quickViewer = { open: true, path, content, sessionId: owner };
           });
           return;
         }
@@ -156,8 +162,9 @@ export const useMdStore = create<MdStoreState>()(
             try {
               const content = await readTextFile(found);
               if (req !== _qvReq) return;
+              const owner = useSessionsStore.getState().activeSessionId;
               set((s) => {
-                s.quickViewer = { open: true, path: found, content };
+                s.quickViewer = { open: true, path: found, content, sessionId: owner };
               });
               return;
             } catch {
@@ -179,7 +186,7 @@ export const useMdStore = create<MdStoreState>()(
       },
       closeQuickViewer: () => {
         set((s) => {
-          s.quickViewer = { open: false, path: null, content: "" };
+          s.quickViewer = { open: false, path: null, content: "", sessionId: null };
         });
       },
 
@@ -385,7 +392,7 @@ export const useMdStore = create<MdStoreState>()(
           s.mdEditorMode = "off";
           s.tabs = [];
           s.activeTabId = null;
-          s.quickViewer = { open: false, path: null, content: "" };
+          s.quickViewer = { open: false, path: null, content: "", sessionId: null };
           s.focusedSurface = null;
         });
       },

@@ -184,10 +184,16 @@ function openShortcutsModal(): boolean {
 
 function toggleQuickViewer(): boolean {
   const qv = useMdStore.getState().quickViewer;
-  if (qv.open) {
+  const activeId = useSessionsStore.getState().activeSessionId;
+  // "Open" only counts if the viewer belongs to the active session — a viewer
+  // owned by another project is hidden here, so the toggle should reopen it in
+  // THIS session, not close someone else's panel.
+  const visibleHere = qv.open && qv.sessionId === activeId;
+  if (visibleHere) {
     useMdStore.getState().closeQuickViewer();
   } else if (qv.path !== null) {
-    // Reopen the last file if one was previously loaded; otherwise no-op.
+    // Reopen the last file — openMdInQuickViewer re-stamps the active session as
+    // owner, so it shows here (covers both closed and open-in-another-session).
     void useMdStore
       .getState()
       .openMdInQuickViewer(qv.path)

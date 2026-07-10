@@ -20,6 +20,7 @@ vi.mock("@/store/confirmStore", () => ({
 }));
 
 import { useMdStore } from "@/store/mdStore";
+import { useSessionsStore } from "@/store/sessionsStore";
 import { useToastStore } from "@/store/toastStore";
 
 vi.mock("@/lib/fsClient", () => ({
@@ -69,6 +70,7 @@ describe("mdStore — Quick Viewer", () => {
   beforeEach(() => {
     useMdStore.getState().reset();
     useToastStore.getState().reset();
+    useSessionsStore.setState({ activeSessionId: null });
     mockedRead.mockImplementation(async (p: string) => `contents of ${p}`);
     mockedFind.mockResolvedValue(null);
     confirmMock.mockReset();
@@ -96,6 +98,19 @@ describe("mdStore — Quick Viewer", () => {
     expect(s.quickViewer.open).toBe(false);
     expect(s.quickViewer.path).toBeNull();
     expect(s.quickViewer.content).toBe("");
+    expect(s.quickViewer.sessionId).toBeNull();
+  });
+
+  it("stamps the active session as the viewer's owner so it stays project-scoped", async () => {
+    // Open the Quick Viewer while session A is active…
+    useSessionsStore.setState({ activeSessionId: "sess-A" });
+    await useMdStore.getState().openMdInQuickViewer("/tmp/x.md");
+    expect(useMdStore.getState().quickViewer.sessionId).toBe("sess-A");
+    // …switching to session B leaves the owner unchanged — App keys visibility
+    // off (sessionId === activeSessionId), so it hides in B and returns in A
+    // rather than following the user across projects.
+    useSessionsStore.setState({ activeSessionId: "sess-B" });
+    expect(useMdStore.getState().quickViewer.sessionId).toBe("sess-A");
   });
 
   it("openMdInQuickViewer last-call-wins when two reads resolve out of order", async () => {

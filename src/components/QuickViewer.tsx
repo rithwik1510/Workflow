@@ -45,8 +45,17 @@ export function QuickViewer() {
 
   // Report focus surface for the Status Bar (DESIGN.md §3, CONTEXT.md
   // "Status Bar"). Mounting Quick Viewer implies the user is glancing at it.
+  // On unmount — closed, OR hidden because the user switched to another session
+  // (the viewer is project-scoped) — release focus so the Status Bar stops
+  // describing this file. Only if it's still ours, so we don't stomp a surface
+  // that took focus while we were open.
   useEffect(() => {
     useMdStore.getState().setFocusedSurface("quick-viewer");
+    return () => {
+      if (useMdStore.getState().focusedSurface === "quick-viewer") {
+        useMdStore.getState().setFocusedSurface(null);
+      }
+    };
   }, []);
 
   if (path === null) return null;

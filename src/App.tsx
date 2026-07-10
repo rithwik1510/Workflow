@@ -80,7 +80,14 @@ function whenPaneResumeHydrated(): Promise<void> {
 }
 
 export default function App() {
-  const quickViewerOpen = useMdStore((s) => s.quickViewer.open);
+  // The Quick Viewer belongs to the session that opened it — a glance panel is
+  // project-scoped, so it must not follow you into other sessions. It counts as
+  // "open" (drives the layout below AND the mutual-exclusion effect) only while
+  // its owning session is the active one.
+  const activeSessionId = useSessionsStore((s) => s.activeSessionId);
+  const quickViewerOwner = useMdStore((s) => s.quickViewer.sessionId);
+  const quickViewerRawOpen = useMdStore((s) => s.quickViewer.open);
+  const quickViewerOpen = quickViewerRawOpen && quickViewerOwner === activeSessionId;
   const previewOpen = usePreviewStore((s) => s.open);
   const mdMode = useMdStore((s) => s.mdEditorMode);
   const diffOpen = useDiffStore((s) => s.open);
@@ -140,7 +147,7 @@ export default function App() {
   // its repo set + file list when the active session changes while it's open, so
   // switching sessions with the diff up shows the new session's repo, not a
   // stale one. Guarded on `open` so it's a no-op when the surface is closed.
-  const activeSessionId = useSessionsStore((s) => s.activeSessionId);
+  // (activeSessionId is declared at the top — the Quick Viewer scoping needs it too.)
   useEffect(() => {
     if (useDiffStore.getState().open) void useDiffStore.getState().openDiff();
   }, [activeSessionId]);
