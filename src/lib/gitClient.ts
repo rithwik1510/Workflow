@@ -82,10 +82,27 @@ export interface WorktreeEntry {
   branch: string | null;
 }
 
-/** Local + remote branches to offer as fork bases (locals first). Never
- *  rejects — returns [] on any git failure, and the popover shows an error. */
+// Claude Code's sub-agents auto-create a throwaway `worktree-agent-<hex>` branch
+// for every run (see the `.claude/worktrees/*` checkouts). They pile up in the
+// repo but are never a branch a human wants to switch to or fork from, so we
+// hide them from every branch list. The pattern is deliberately narrow — a hex
+// suffix, anchored to a path segment — so real branches that merely live under
+// .claude/worktrees (e.g. `feat/*`, `advisor/*`) still appear.
+const AGENT_SCRATCH_BRANCH = /(^|\/)worktree-agent-[0-9a-f]+$/i;
+
+/** True for a Claude Code agent-scratch branch, local (`worktree-agent-abc123`)
+ *  or remote (`origin/worktree-agent-abc123`). Exported for the switcher tests. */
+export function isAgentInternalBranch(name: string): boolean {
+  return AGENT_SCRATCH_BRANCH.test(name);
+}
+
+/** Local + remote branches to offer as fork bases / switch targets (locals
+ *  first). Agent-scratch branches are filtered out. Never rejects — returns []
+ *  on any git failure, and the popover shows an error. */
 export function gitListBranches(repo: string): Promise<BranchInfo[]> {
-  return invoke<BranchInfo[]>("git_list_branches", { repo });
+  return invoke<BranchInfo[]>("git_list_branches", { repo }).then((branches) =>
+    branches.filter((b) => !isAgentInternalBranch(b.name))
+  );
 }
 
 /** The repo's default branch (origin/HEAD → local main → master → current), or
