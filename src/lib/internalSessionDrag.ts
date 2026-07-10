@@ -13,6 +13,7 @@
 
 import { useSessionDragStore } from "@/store/sessionDragStore";
 import { useSessionsStore, type SessionId } from "@/store/sessionsStore";
+import { noteDragSplitCreated } from "@/sessions/coach";
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -92,7 +93,16 @@ export function beginInternalSessionDrag(
 
     // openSplitWith handles every case: pairs with the active session, or (when
     // there's no active session / it's a self-drop) just opens this one full.
-    if (dropped) useSessionsStore.getState().openSplitWith(sessionId);
+    if (dropped) {
+      // Capture the pre-drop active session: openSplitWith only creates a
+      // GENUINE split when there is a different active session to pair with
+      // (its no-op branch is `active === null || companionId === active`).
+      const prevActive = useSessionsStore.getState().activeSessionId;
+      useSessionsStore.getState().openSplitWith(sessionId);
+      // Coach (Plan 014 §4): a real drag-to-split graduates the session-thrash
+      // tip — the user has demonstrated the feature. Skip the no-op self-drop.
+      if (prevActive !== null && prevActive !== sessionId) noteDragSplitCreated();
+    }
 
     // Swallow the click that follows this mouseup so the row's onClick
     // (activate / collapse-the-split) doesn't also fire after a drag.
