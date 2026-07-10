@@ -23,6 +23,8 @@ import { IconClose } from "@/components/icons";
 import { SignalIndicator, AgentGlyph } from "@/components/SignalIndicator";
 import type { SidebarSignal } from "@/sessions/sessionSignal";
 import { useShortcutsModalStore } from "@/store/shortcutsModalStore";
+import { useCoachStore } from "@/store/coachStore";
+import { TIP_CATALOG, type TipDef, type TipId } from "@/sessions/coachCatalog";
 import { usePresence } from "@/hooks/usePresence";
 
 interface ShortcutRow {
@@ -81,10 +83,38 @@ const LEGEND: { signal: SidebarSignal; name: string; meaning: string }[] = [
   { signal: "idle", name: "Idle", meaning: "Open, nothing running" },
 ];
 
+/** The shelved-and-still-relevant tips, in catalog order. A tip earns a "For
+ *  you" row while shelved ∧ ¬graduated ∧ ¬dismissed (Plan 014 §7). The durable
+ *  session-thrash row uses the GENERIC shelfCopy — only the live chip names the
+ *  observed pair. */
+function shelvedTips(tips: Record<string, { shelvedAt?: number; graduatedAt?: number; dismissedAt?: number }>): TipDef[] {
+  return (Object.keys(TIP_CATALOG) as TipId[])
+    .map((id) => ({ id, rec: tips[id] }))
+    .filter(
+      ({ rec }) =>
+        rec?.shelvedAt !== undefined &&
+        rec.graduatedAt === undefined &&
+        rec.dismissedAt === undefined
+    )
+    .map(({ id }) => TIP_CATALOG[id]);
+}
+
 export function ShortcutsModal() {
   const open = useShortcutsModalStore((s) => s.open);
   const close = useShortcutsModalStore((s) => s.closeModal);
   const { mounted, state } = usePresence(open, 160);
+
+  // "For you" shelf (Plan 014 §7). Rendered only when it has rows.
+  const tips = useCoachStore((s) => s.tips);
+  const markShelfOpened = useCoachStore((s) => s.markShelfOpened);
+  const dismissForever = useCoachStore((s) => s.dismissForever);
+  const forYou = shelvedTips(tips);
+
+  // Opening the modal clears the ⌨ notification dot (all open paths route
+  // through the store's `open` flag, so this covers button + Ctrl+? alike).
+  useEffect(() => {
+    if (open) markShelfOpened();
+  }, [open, markShelfOpened]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,7 +142,7 @@ export function ShortcutsModal() {
     >
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header} id="shortcuts-modal-title">
-          Keyboard shortcuts
+          Shortcuts &amp; tips
           <button
             className={styles.closeBtn}
             onClick={close}
@@ -123,6 +153,35 @@ export function ShortcutsModal() {
           </button>
         </div>
         <div className={styles.body}>
+          {forYou.length > 0 && (
+            <div className={styles.group}>
+              <div className={styles.groupHeader}>For you</div>
+              {forYou.map((def) => (
+                <div key={def.tipId} className={styles.row}>
+                  <span className={styles.label}>{def.shelfCopy ?? def.copy}</span>
+                  <span className={styles.tipMeta}>
+                    {def.keycaps && def.keycaps.length > 0 && (
+                      <span className={styles.keys}>
+                        {def.keycaps.map((k, i) => (
+                          <kbd key={`${def.tipId}-${i}`} className={styles.key}>
+                            {k}
+                          </kbd>
+                        ))}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.tipDismiss}
+                      onClick={() => dismissForever(def.tipId)}
+                      title="Don't suggest this"
+                    >
+                      Don&rsquo;t suggest this
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {CATALOG.map((group) => (
             <div key={group.name} className={styles.group}>
               <div className={styles.groupHeader}>{group.name}</div>

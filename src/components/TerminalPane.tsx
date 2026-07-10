@@ -28,6 +28,7 @@ import {
 import { PaneResumeBanner } from "@/components/PaneResumeBanner";
 import { PaneSearchBar } from "@/components/PaneSearchBar";
 import { AttemptHintChip } from "@/components/AttemptHintChip";
+import { CoachChip } from "@/components/CoachChip";
 import { registerOscHandlers } from "@/sessions/oscNotifications";
 import { registerClipboardOsc } from "@/sessions/oscClipboard";
 import { registerCommandTracking } from "@/sessions/commandTracker";
@@ -213,6 +214,9 @@ function TerminalPaneImpl({ paneId }: Props) {
       {/* Fresh-worktree install reminder — one-time overlay chip for attempt
           sessions (Plan 013). Same overlay discipline as the resume banner. */}
       <AttemptHintChip paneId={paneId} />
+      {/* Workflow coach rescue chip (Plan 014). Lowest-priority occupant of the
+          top-center slot — paneOverlayArbiter yields it to the two above. */}
+      <CoachChip paneId={paneId} />
       {isDropTarget && (
         <div
           aria-hidden="true"

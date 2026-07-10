@@ -1,0 +1,120 @@
+/* CoachChip — the workflow coach's live push chip (Plan 014 §7). Follows the
+ * PaneResumeBanner / AttemptHintChip overlay grammar: an absolutely positioned
+ * OVERLAY (never in flow, so it never reflows the xterm grid or the sidebar),
+ * sliding down + fading via the usePresence data-state pattern. The app-wide
+ * prefers-reduced-motion rule (theme.css) neutralises the transition and
+ * usePresence short-circuits mount/unmount, so no reduced-motion handling is
+ * needed here.
+ *
+ * GOTCHA (documented app-wide): an undefined custom property invalidates the
+ * whole declaration, so every var() carries a literal fallback. */
+
+.chip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 4; /* above the drop-target overlay (zIndex 3) in TerminalPane */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 24px));
+  padding: 6px 8px 6px 12px;
+  background: var(--bg-2, #1a1a1a);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 12px;
+  color: var(--fg-1, #9a9a9a);
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.chip[data-state="closed"] {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+  transition-duration: var(--dur-fast, 120ms);
+  transition-timing-function: var(--ease-in, ease-in);
+}
+
+/* Pair variant lives inside the fixed .pairMount, so it is statically placed
+ * (no -50% centring) and slides straight down. */
+.chip.pair {
+  position: static;
+  transform: translate(0, 0);
+  max-width: none;
+}
+.chip.pair[data-state="closed"] {
+  transform: translate(0, -8px);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.copy {
+  color: var(--fg-0, #e6e6e6);
+}
+
+/* The observed pair, e.g. "web ⇄ api" — muted context above the advice. */
+.context {
+  color: var(--fg-2, #6a6a6a);
+  font-size: 11px;
+}
+
+/* Keycap chips — mirror the ShortcutsModal .key styling. */
+.keys {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.key {
+  background: var(--bg-1, #111111);
+  border: 1px solid var(--border, #222222);
+  border-radius: var(--radius-sm, 4px);
+  padding: 1px 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--fg-0, #e6e6e6);
+}
+
+.dismiss {
+  flex: none;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--fg-2, #6a6a6a);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 11px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    color var(--dur-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-fast, 120ms) var(--ease-out, ease-out);
+}
+.dismiss:hover {
+  color: var(--fg-0, #e6e6e6);
+  background: var(--bg-3, #222222);
+}
+
+/* Fixed anchor for the session-pair chip — pinned under the top bar over the
+ * sessions-sidebar region (the plan's robust fallback for the two-row anchor). */
+.pairMount {
+  position: fixed;
+  top: 44px;
+  left: 8px;
+  z-index: var(--z-overlay, 60);
+  max-width: min(340px, calc(100vw - 16px));
+  pointer-events: auto;
+}

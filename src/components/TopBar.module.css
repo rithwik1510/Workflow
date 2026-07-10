@@ -43,6 +43,7 @@
  * area holding a 16px stroke icon, subtle hover. Active state for toggles uses
  * --accent (the icon inherits it via currentColor). */
 .btn {
+  position: relative; /* anchors the ⌨ shelf-notification dot */
   width: 30px;
   height: 30px;
   display: inline-flex;
@@ -95,6 +96,18 @@
 /* Window control buttons (min/max/close) — 28x36 hit area matches DESIGN.md.
  * Square corners (no border-radius) on the window controls to read as native
  * Windows controls. Close hover is --error. */
+/* ⌨ shelf-notification dot (Plan 014): a shelved tip is waiting. 2px accent dot
+ * pinned at the icon's top-right; purely a "look here", cleared on modal open. */
+.shelfDot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .winBtn {
   width: 28px;
   height: 36px;

@@ -124,6 +124,33 @@
   color: var(--fg-0);
 }
 
+/* "For you" shelf rows (Plan 014): a shelved tip line + optional keycap + the
+ * per-row "Don't suggest this" control, right-aligned like the keys column. */
+.tipMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  margin-left: var(--space-3);
+}
+.tipDismiss {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tipDismiss:hover {
+  color: var(--fg-0);
+  background: var(--bg-2);
+  border-color: var(--accent-dim);
+}
+
 /* Signals legend (Plan 008): the durable "what does this dot mean" answer. */
 .signalLabel {
   display: inline-flex;
