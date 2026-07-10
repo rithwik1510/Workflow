@@ -18,6 +18,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 
 import { readClipboardText, writeClipboardText } from "@/lib/clipboardClient";
 import { noteBell } from "@/sessions/attentionTracker";
+import { noteTerminalInput } from "@/store/coachStore";
 import { xtermThemeFromCSS } from "@/lib/themes";
 import { currentMonoFamily } from "@/lib/fontPairs";
 import "@xterm/xterm/css/xterm.css";
@@ -426,7 +427,13 @@ export function onTerminalData(
 ): { dispose(): void } {
   const entry = entries.get(paneId);
   if (!entry) throw new Error(`no terminal for paneId=${paneId}`);
-  return entry.term.onData(handler);
+  // Coach timing seam (Plan 014 §5): stamp the last-input time (metadata only —
+  // never the keys) so the coach won't interrupt right after the user typed.
+  // Cheap by contract: a single module-variable write per keystroke.
+  return entry.term.onData((data) => {
+    noteTerminalInput(paneId);
+    handler(data);
+  });
 }
 
 /** Send the mouse-mode-reset escape sequences to xterm itself (not the PTY). */

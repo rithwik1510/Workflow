@@ -20,6 +20,7 @@ import {
 import { revealInExplorer } from "@/lib/revealInExplorer";
 import { useAttemptPopoverStore } from "@/store/attemptPopoverStore";
 import { beginInternalSessionDrag } from "@/lib/internalSessionDrag";
+import { emitSessionNavigation } from "@/sessions/coachNav";
 import { InlineRename } from "@/components/InlineRename";
 import { SignalIndicator, AgentGlyph } from "@/components/SignalIndicator";
 import { IconTrash } from "@/components/icons";
@@ -83,6 +84,10 @@ export function SessionRow({ session }: Props) {
 
   const onClick = () => {
     if (renaming) return;
+    // Coach: a sidebar click is a DELIBERATE navigation entry point (Plan 014
+    // §5). Emit BEFORE enter() so `from` is still the outgoing session; the seam
+    // itself drops the non-friction cases (split open / split-pair reopen).
+    emitSessionNavigation(session.id, "sidebar");
     // Group-aware: a grouped row re-opens its split; an ungrouped one just
     // activates. enterSession handles both.
     enter(session.id);
