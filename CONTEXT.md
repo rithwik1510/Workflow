@@ -102,6 +102,18 @@ _Avoid_: Chat, conversation, thread (an Agent Session is the agent's run inside 
 The single indicator a session row shows for a *background* session, ranked most-urgent first: **waiting on permission** (hollow accent ring with a glow pulse — an open question waiting for YOU to answer), **your move** (solid accent dot with a steady glow — a finished turn / the agent is waiting at its prompt; Stop and idle notifications collapse here), **working** (the tumbling logo square — a turn is in progress), and **idle** (hollow grey dot — open, nothing running). The session you're viewing never signals (you can see the terminal). Priority is `permission > your-move > working > idle`. A collapsed folder header inherits its most-urgent child's signal, and the Status Bar rolls up the blocked (`◎`) + your-move (`●`) counts across background sessions. The full legend lives in the Ctrl+? shortcuts modal. An agent-identity glyph (Claude `✻`) sits after the session name once the agent is known.
 _Avoid_: Badge, notification, alert (the signal is state, not an event); "status dot" (ambiguous with the process indicator).
 
+**Tip** (Workflow coach):
+One piece of learnable Lume advice managed by the coach — a rescue for a live failure or repeated friction. A Tip lives in one of two lanes: **push** (a live **Coach Chip** anchored to the pane or the session pair, the interrupt lane) or **shelf** (a **For you** row in Shortcuts & tips, the pull lane, zero interruption). Every push obeys one global ceiling: at most one a day, two in any trailing 7 days, two showings per Tip ever, no exemptions. A Tip is never feature marketing — it fires only for an active failure or high-confidence, anchorable friction.
+_Avoid_: Hint (the AttemptHintChip is a separate one-shot), notification, nag, suggestion popup, Clippy.
+
+**Shelf** (the "For you" section):
+The pull lane — a group in the **Shortcuts & tips** modal (Ctrl+?) that holds Tips which don't warrant an interruption (enable precise Claude signals, Ctrl+F to search scrollback), plus the durable copy of a push Tip after it has fired. A Tip earns a Shelf row while it is shelved, not graduated, and not dismissed. A newly shelved Tip lights a 2px dot on the ⌨ icon (at most once per 7 days), cleared when the modal opens. The Shelf costs zero attention, so it can hold looser thresholds than the push lane.
+_Avoid_: Inbox, notification center, tips panel, drawer, feed.
+
+**Graduation** (earned silence):
+The retirement of a Tip because the user performed the taught action — a successful Shift-drag selection, a drag-to-split, opening Ctrl+F search, or a hook event proving precise signals already work. Graduation is permanent and can be **retroactive**: an existing durable split group or a Ctrl+F user retires the matching Tip before it ever fires. A graduated Tip records nothing further and never pushes or shelves again. Distinct from **dismissal** ("Don't suggest this"), which is the user rejecting the Tip and also opens a 7-day global quiet on every push.
+_Avoid_: Dismissal (that is user rejection, not a learned action), completion, done, snooze, mute.
+
 ## Lume surfaces (top-level UI structure)
 
 ```

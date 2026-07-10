@@ -86,6 +86,9 @@ One window. Tiled terminals that don't tear when every pane streams at once. A m
 ### 08 · Never lose your place
 **Close it, come back, keep going.** A pane that was running an agent offers to **resume the exact conversation** on the next launch (or auto-resume the whole fleet). `Ctrl+F` searches any pane's scrollback; `Ctrl+Alt+Z` zooms one pane full-screen and back; `Ctrl+Click` opens URLs in your browser; a paste with newlines asks first.
 
+### 09 · A coach, never a Clippy
+**Learn Lume's faster paths the moment they'd help — and never once you know them.** A rescue tip appears only for a live failure or repeated friction (a Shift-drag select inside a TUI, bouncing between two sessions), under a hard ceiling of one interruption a day; everything else waits in **Shortcuts & tips** (`Ctrl+?`). Any move you already make retires its tip for good, and one switch (Settings → Interface → **Workflow tips**) silences the lot.
+
 <p align="center">
   <img src="./assets/themes.svg" alt="Lume theme palettes — Cobalt, Coral, Tokyo Night, Gruvbox" width="100%" />
 </p>
