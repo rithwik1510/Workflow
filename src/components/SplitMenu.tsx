@@ -79,7 +79,7 @@ export function SplitMenu() {
         aria-label="Split right"
         role="menuitem"
       >
-        <IconArrowRight size={20} strokeWidth={2.25} />
+        <IconArrowRight size={24} strokeWidth={2.5} />
       </button>
       <button
         className={styles.item}
@@ -88,7 +88,7 @@ export function SplitMenu() {
         aria-label="Split up"
         role="menuitem"
       >
-        <IconArrowUp size={20} strokeWidth={2.25} />
+        <IconArrowUp size={24} strokeWidth={2.5} />
       </button>
       <button
         className={styles.item}
@@ -97,7 +97,7 @@ export function SplitMenu() {
         aria-label="Split down"
         role="menuitem"
       >
-        <IconArrowDown size={20} strokeWidth={2.25} />
+        <IconArrowDown size={24} strokeWidth={2.5} />
       </button>
     </div>
   );
